@@ -3,9 +3,9 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
 import { seedStudentSkills } from "@/lib/learning";
@@ -28,15 +28,16 @@ export async function addStudent(_: FormState, form: FormData): Promise<FormStat
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const data = parsed.data;
 
-  const taken = db.select().from(schema.students)
-    .where(and(eq(schema.students.familyId, family.id), eq(schema.students.username, data.username))).get();
-  if (taken) return { error: "That username is already used in your family." };
-
-  const student = db.insert(schema.students).values({
-    familyId: family.id, name: data.name, username: data.username, grade: data.grade,
-    avatar: data.avatar, pinHash: await bcrypt.hash(data.pin, 10),
-  }).returning().get();
-  seedStudentSkills(student.id, data.grade);
+  const db = await getDb();
+  const pinHash = await bcrypt.hash(data.pin, 10);
+  const added = await db.transaction(async (tx) => {
+    const [student] = await tx.insert(schema.students).values({
+      familyId: family.id, name: data.name, username: data.username, grade: data.grade, avatar: data.avatar, pinHash,
+    }).onConflictDoNothing().returning();
+    if (student) await seedStudentSkills(student.id, data.grade, tx);
+    return !!student;
+  });
+  if (!added) return { error: "That username is already used in your family." };
   revalidatePath("/parent");
   return {};
 }
@@ -54,19 +55,20 @@ export async function updateStudent(_: FormState, form: FormData): Promise<FormS
   const parsed = settingsSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const data = parsed.data;
-  const student = familyStudent(family.id, data.studentId);
+  const student = await familyStudent(family.id, data.studentId);
   if (!student) return { error: "Student not found." };
+  const db = await getDb();
 
   const focus = form.getAll("focus").map(String).filter((id) => SKILLS_BY_ID.has(id)).slice(0, 5);
-  db.update(schema.students).set({
+  await db.update(schema.students).set({
     dailyProblems: data.dailyProblems,
     grade: data.grade,
     homeworkEnabled: data.homeworkEnabled === "on",
-    focusSkills: JSON.stringify(focus),
+    focusSkills: focus,
     ...(data.newPin ? { pinHash: await bcrypt.hash(data.newPin, 10) } : {}),
-  }).where(eq(schema.students.id, student.id)).run();
+  }).where(eq(schema.students.id, student.id));
   // Moving a child to a higher grade starts them on that grade's skills.
-  if (data.grade > student.grade) seedStudentSkills(student.id, data.grade);
+  if (data.grade > student.grade) await seedStudentSkills(student.id, data.grade);
 
   revalidatePath(`/parent/students/${student.id}`);
   return { error: undefined };
@@ -74,8 +76,8 @@ export async function updateStudent(_: FormState, form: FormData): Promise<FormS
 
 export async function deleteStudent(form: FormData) {
   const { family } = await requireParent();
-  const student = familyStudent(family.id, String(form.get("studentId")));
-  if (student) db.delete(schema.students).where(eq(schema.students.id, student.id)).run();
+  const student = await familyStudent(family.id, String(form.get("studentId")));
+  if (student) await (await getDb()).delete(schema.students).where(eq(schema.students.id, student.id));
   redirect("/parent");
 }
 
@@ -90,10 +92,11 @@ export async function addCoParent(_: FormState, form: FormData): Promise<FormSta
   const parsed = coParentSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { name, email, password } = parsed.data;
-  if (db.select().from(schema.parents).where(eq(schema.parents.email, email)).get()) {
-    return { error: "An account with that email already exists." };
-  }
-  db.insert(schema.parents).values({ familyId: family.id, name, email, passwordHash: await bcrypt.hash(password, 10) }).run();
+  const db = await getDb();
+  const [added] = await db.insert(schema.parents)
+    .values({ familyId: family.id, name, email, passwordHash: await bcrypt.hash(password, 10) })
+    .onConflictDoNothing().returning({ id: schema.parents.id });
+  if (!added) return { error: "An account with that email already exists." };
   revalidatePath("/parent");
   return {};
 }

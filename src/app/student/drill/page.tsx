@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DrillPage() {
   const { student, family } = await requireStudent();
-  const drill = getOrCreateDrill(student, family.timezone);
-  const problems = drillProblems(drill.id).map(problemView);
+  const drill = await getOrCreateDrill(student, family.timezone);
+  const problems = (await drillProblems(drill.id)).map(problemView);
   return <DrillRunner initialProblems={problems} name={student.name} />;
 }

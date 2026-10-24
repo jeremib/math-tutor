@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getStudent } from "@/lib/auth";
 import { IMAGE_TYPES, saveUpload, tutorReply, TutorUnavailableError, type ImageType } from "@/lib/tutor";
 
@@ -28,7 +28,8 @@ export async function POST(req: Request) {
   }
 
   const title = text ? text.split("\n")[0].slice(0, 80) : `Photo problem · ${new Date().toLocaleDateString()}`;
-  const hw = db.insert(schema.homeworkSessions).values({ studentId: student.id, title, problemText: text || null, imagePath, imageType }).returning().get();
+  const db = await getDb();
+  const [hw] = await db.insert(schema.homeworkSessions).values({ studentId: student.id, title, problemText: text || null, imagePath, imageType }).returning();
 
   const opening = hasImage
     ? `Here's a photo of my homework problem.${text ? ` ${text}` : ""}`

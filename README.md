@@ -19,13 +19,24 @@ cp .env.example .env.local   # add your ANTHROPIC_API_KEY
 npm run dev                  # http://localhost:3000
 ```
 
-Drills work without an API key; the homework helper needs one. Data, including uploaded photos, is stored in `DATA_DIR` (default `./data`) in a SQLite database. The schema is created on first run.
+Drills work without an API key; the homework helper needs one.
 
 ```bash
 npm test        # curriculum, answer checking and progression logic
 npm run lint    # type-check
 npm run build
 ```
+
+## Database
+
+The app uses Postgres everywhere, so development and production run the same SQL.
+
+- **Development:** leave `DATABASE_URL` unset. The app uses [PGlite](https://pglite.dev), Postgres compiled to WebAssembly, stored in `DATA_DIR/pglite`. There's nothing to install. Only one process can open it at a time.
+- **Production:** set `DATABASE_URL` to any Postgres 14+ server (RDS, Cloud SQL, Neon, Supabase, Railway, etc.). To try this locally, run `docker compose up -d`.
+
+Migrations live in `drizzle/` and are applied automatically when the server first connects. After changing `src/db/schema.ts`, run `npm run db:generate` and commit the new migration file.
+
+Uploaded homework photos are stored on disk in `DATA_DIR/uploads`. If you run more than one server, put that folder on shared storage (or move uploads to S3 or similar).
 
 ## Layout
 
@@ -35,12 +46,14 @@ npm run build
 | `src/lib/answers.ts` | Answer checking (fractions, decimals, mixed numbers, remainders) |
 | `src/lib/progress.ts` | Mastery, unlocking, drill composition, streaks (pure, unit-tested) |
 | `src/lib/learning.ts` | Database-backed drills and progress |
+| `src/db/` | Schema and connection (Postgres or PGlite) |
+| `drizzle/` | SQL migrations |
 | `src/lib/tutor.ts` | Homework tutor prompt and Claude API call |
 | `src/lib/auth.ts` | Cookie sessions for parents and students |
 | `src/app/parent`, `src/app/student` | The two sides of the app |
 
 ## Before production
 
-- SQLite on one server is fine for a family or a small group. For many families, move to Postgres (Drizzle supports it).
-- Login rate limiting is in-memory, so it only works on a single instance.
+- Login rate limiting is in-memory, so it only works on a single instance. With several instances, move it into Postgres or Redis.
+- If several instances start at the same moment, they each try to apply migrations. Deploy one instance first, or run migrations as a release step.
 - There's no email verification or password reset yet.

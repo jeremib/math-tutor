@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
 import { asc, eq } from "drizzle-orm";
-import { db, schema, DATA_DIR } from "@/db";
+import { getDb, schema, DATA_DIR } from "@/db";
 import { GRADE_LABELS } from "./curriculum";
 
 const MODEL = "claude-opus-5-5";
@@ -48,13 +48,14 @@ export function readUpload(file: string) {
 
 type HomeworkSession = typeof schema.homeworkSessions.$inferSelect;
 
-export function sessionMessages(sessionId: string) {
+export async function sessionMessages(sessionId: string) {
+  const db = await getDb();
   return db.select().from(schema.homeworkMessages).where(eq(schema.homeworkMessages.sessionId, sessionId))
-    .orderBy(asc(schema.homeworkMessages.createdAt)).all();
+    .orderBy(asc(schema.homeworkMessages.createdAt));
 }
 
-function buildMessages(session: HomeworkSession): Anthropic.Beta.BetaMessageParam[] {
-  const history = sessionMessages(session.id);
+async function buildMessages(session: HomeworkSession): Promise<Anthropic.Beta.BetaMessageParam[]> {
+  const history = await sessionMessages(session.id);
   return history.map((m, i) => {
     if (i === 0 && session.imagePath && session.imageType) {
       return {
@@ -73,7 +74,8 @@ export class TutorUnavailableError extends Error {}
 
 /** Adds the student's message, asks Claude for the next tutoring turn, and stores the reply. */
 export async function tutorReply(session: HomeworkSession, student: { name: string; grade: number }, studentText: string) {
-  db.insert(schema.homeworkMessages).values({ sessionId: session.id, role: "user", content: studentText }).run();
+  const db = await getDb();
+  await db.insert(schema.homeworkMessages).values({ sessionId: session.id, role: "user", content: studentText });
 
   let reply: string;
   try {
@@ -85,7 +87,7 @@ export async function tutorReply(session: HomeworkSession, student: { name: stri
       output_config: { effort: "medium" },
       cache_control: { type: "ephemeral" },
       system: systemPrompt(student.name, student.grade),
-      messages: buildMessages(session),
+      messages: await buildMessages(session),
     });
     if (response.stop_reason === "refusal") {
       reply = "I can't help with that one. Let's get back to your math problem! What part are you working on?";
@@ -95,8 +97,8 @@ export async function tutorReply(session: HomeworkSession, student: { name: stri
     }
   } catch (error) {
     // Drop the unanswered message so the student can simply resend it.
-    const last = sessionMessages(session.id).at(-1);
-    if (last?.role === "user") db.delete(schema.homeworkMessages).where(eq(schema.homeworkMessages.id, last.id)).run();
+    const last = (await sessionMessages(session.id)).at(-1);
+    if (last?.role === "user") await db.delete(schema.homeworkMessages).where(eq(schema.homeworkMessages.id, last.id));
     if (error instanceof Anthropic.AuthenticationError) throw new TutorUnavailableError("The tutor isn't set up yet. Ask a parent to add an Anthropic API key.");
     if (error instanceof Anthropic.RateLimitError) throw new TutorUnavailableError("The tutor is busy right now. Try again in a minute.");
     if (error instanceof Anthropic.APIError) throw new TutorUnavailableError("The tutor had a problem answering. Please try again.");
@@ -107,9 +109,9 @@ export async function tutorReply(session: HomeworkSession, student: { name: stri
 
   const solved = reply.includes(SOLVED_MARKER);
   reply = reply.replaceAll(SOLVED_MARKER, "").trim();
-  db.insert(schema.homeworkMessages).values({ sessionId: session.id, role: "assistant", content: reply }).run();
-  db.update(schema.homeworkSessions)
+  await db.insert(schema.homeworkMessages).values({ sessionId: session.id, role: "assistant", content: reply });
+  await db.update(schema.homeworkSessions)
     .set({ updatedAt: new Date(), ...(solved ? { status: "solved" as const } : {}) })
-    .where(eq(schema.homeworkSessions.id, session.id)).run();
+    .where(eq(schema.homeworkSessions.id, session.id));
   return { reply, solved };
 }

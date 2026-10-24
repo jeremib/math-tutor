@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getStudent } from "@/lib/auth";
 import { sessionMessages, tutorReply, TutorUnavailableError } from "@/lib/tutor";
 
@@ -15,10 +15,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Type a message first." }, { status: 400 });
 
-  const session = db.select().from(schema.homeworkSessions)
-    .where(and(eq(schema.homeworkSessions.id, (await params).id), eq(schema.homeworkSessions.studentId, auth.student.id))).get();
+  const db = await getDb();
+  const [session] = await db.select().from(schema.homeworkSessions)
+    .where(and(eq(schema.homeworkSessions.id, (await params).id), eq(schema.homeworkSessions.studentId, auth.student.id)));
   if (!session) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (sessionMessages(session.id).length >= MAX_MESSAGES) {
+  if ((await sessionMessages(session.id)).length >= MAX_MESSAGES) {
     return NextResponse.json({ error: "This conversation is getting long. Start a new one for the next problem!" }, { status: 400 });
   }
 

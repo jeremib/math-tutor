@@ -14,7 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ problem
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Bad request" }, { status: 400 });
 
-  const result = actOnProblem(session.student.id, (await params).problemId, parsed.data);
+  const result = await actOnProblem(session.student.id, (await params).problemId, parsed.data);
   if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(result);
 }

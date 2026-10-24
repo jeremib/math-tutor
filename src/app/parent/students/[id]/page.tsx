@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { GRADE_LABELS, SKILLS, SKILLS_BY_ID } from "@/lib/curriculum";
 import { parseFocus, studentStats } from "@/lib/learning";
@@ -12,17 +12,20 @@ import { deleteStudent, updateStudent } from "../../actions";
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { family } = await requireParent();
-  const student = familyStudent(family.id, id);
+  const student = await familyStudent(family.id, id);
   if (!student) notFound();
 
-  const stats = studentStats(student, family.timezone);
+  const db = await getDb();
   const focus = new Set(parseFocus(student));
-  const homework = db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
-    .orderBy(desc(schema.homeworkSessions.updatedAt)).limit(20).all();
-  const misses = db.select({ p: schema.drillProblems, date: schema.drills.date })
+  const [stats, homework, misses] = await Promise.all([
+    studentStats(student, family.timezone),
+    db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
+    .orderBy(desc(schema.homeworkSessions.updatedAt)).limit(20),
+    db.select({ p: schema.drillProblems, date: schema.drills.date })
     .from(schema.drillProblems).innerJoin(schema.drills, eq(schema.drills.id, schema.drillProblems.drillId))
     .where(and(eq(schema.drills.studentId, student.id), eq(schema.drillProblems.firstTryCorrect, false)))
-    .orderBy(desc(schema.drillProblems.answeredAt)).limit(8).all();
+    .orderBy(desc(schema.drillProblems.answeredAt)).limit(8),
+  ]);
 
   const byGrade = new Map<number, typeof stats.skills>();
   for (const s of stats.skills) byGrade.set(s.skill!.grade, [...(byGrade.get(s.skill!.grade) ?? []), s]);

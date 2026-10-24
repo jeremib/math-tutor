@@ -5,7 +5,7 @@ import { MasteryBar, Stat } from "@/components/ui";
 
 export default async function StudentHome() {
   const { student, family } = await requireStudent();
-  const stats = studentStats(student, family.timezone);
+  const stats = await studentStats(student, family.timezone);
   const learning = stats.skills.filter((s) => !s.masteredAt);
   const recentlyMastered = stats.skills
     .filter((s) => s.masteredAt && s.attempts > 0)

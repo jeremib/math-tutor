@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { requireStudent } from "@/lib/auth";
 import { sessionMessages } from "@/lib/tutor";
 import { HomeworkChat } from "./HomeworkChat";
@@ -10,8 +10,9 @@ export default async function HomeworkSessionPage({ params }: { params: Promise<
   const { id } = await params;
   const { student } = await requireStudent();
   if (!student.homeworkEnabled) redirect("/student");
-  const session = db.select().from(schema.homeworkSessions)
-    .where(and(eq(schema.homeworkSessions.id, id), eq(schema.homeworkSessions.studentId, student.id))).get();
+  const db = await getDb();
+  const [session] = await db.select().from(schema.homeworkSessions)
+    .where(and(eq(schema.homeworkSessions.id, id), eq(schema.homeworkSessions.studentId, student.id)));
   if (!session) notFound();
 
   return (
@@ -25,7 +26,7 @@ export default async function HomeworkSessionPage({ params }: { params: Promise<
         sessionId={session.id}
         studentName={student.name}
         initialSolved={session.status === "solved"}
-        initialMessages={sessionMessages(session.id).map((m) => ({ id: m.id, role: m.role, content: m.content }))}
+        initialMessages={(await sessionMessages(session.id)).map((m) => ({ id: m.id, role: m.role, content: m.content }))}
       />
     </div>
   );

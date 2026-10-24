@@ -1,6 +1,6 @@
 import "server-only";
 import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema, type Db } from "@/db";
 import { SKILLS_BY_ID, seededRandom } from "./curriculum";
 import { checkAnswer } from "./answers";
 import {
@@ -8,24 +8,27 @@ import {
 } from "./progress";
 
 type Student = typeof schema.students.$inferSelect;
+/** A connection or an open transaction. */
+type Tx = Pick<Db, "select" | "insert" | "update" | "delete">;
 
-export function seedStudentSkills(studentId: string, grade: number) {
+export async function seedStudentSkills(studentId: string, grade: number, tx?: Tx) {
+  const db = tx ?? (await getDb());
   const now = new Date();
-  for (const s of initialSkills(grade)) {
-    db.insert(schema.studentSkills).values({
-      studentId, skillId: s.skillId, unlockedAt: now,
-      // Earlier-grade skills start as assumed knowledge; review drills will reveal gaps.
-      mastery: s.mastered ? 0.8 : 0,
-      masteredAt: s.mastered ? now : null,
-    }).onConflictDoNothing().run();
-  }
+  const rows = initialSkills(grade).map((s) => ({
+    studentId, skillId: s.skillId, unlockedAt: now,
+    // Earlier-grade skills start as assumed knowledge; review drills will reveal gaps.
+    mastery: s.mastered ? 0.8 : 0,
+    masteredAt: s.mastered ? now : null,
+  }));
+  if (rows.length) await db.insert(schema.studentSkills).values(rows).onConflictDoNothing();
 }
 
-export function skillRows(studentId: string) {
-  return db.select().from(schema.studentSkills).where(eq(schema.studentSkills.studentId, studentId)).all();
+export async function skillRows(studentId: string, tx?: Tx) {
+  const db = tx ?? (await getDb());
+  return db.select().from(schema.studentSkills).where(eq(schema.studentSkills.studentId, studentId));
 }
 
-function toStates(rows: ReturnType<typeof skillRows>): SkillState[] {
+function toStates(rows: Awaited<ReturnType<typeof skillRows>>): SkillState[] {
   return rows.map((r) => ({
     skillId: r.skillId, mastery: r.mastery, attempts: r.attempts,
     mastered: r.masteredAt !== null, lastPracticedAt: r.lastPracticedAt?.getTime() ?? null,
@@ -33,19 +36,15 @@ function toStates(rows: ReturnType<typeof skillRows>): SkillState[] {
 }
 
 /** Makes sure the student always has skills in progress, unlocking the next ones in the curriculum. */
-function unlockNext(studentId: string) {
-  for (const skillId of skillsToUnlock(toStates(skillRows(studentId)))) {
-    db.insert(schema.studentSkills).values({ studentId, skillId, unlockedAt: new Date() }).onConflictDoNothing().run();
+async function unlockNext(studentId: string, tx: Tx) {
+  const ids = skillsToUnlock(toStates(await skillRows(studentId, tx)));
+  if (ids.length) {
+    await tx.insert(schema.studentSkills).values(ids.map((skillId) => ({ studentId, skillId }))).onConflictDoNothing();
   }
 }
 
 export function parseFocus(student: Student): string[] {
-  try {
-    const ids = JSON.parse(student.focusSkills);
-    return Array.isArray(ids) ? ids.filter((id) => typeof id === "string" && SKILLS_BY_ID.has(id)) : [];
-  } catch {
-    return [];
-  }
+  return Array.isArray(student.focusSkills) ? student.focusSkills.filter((id) => SKILLS_BY_ID.has(id)) : [];
 }
 
 export function todayFor(timezone: string) {
@@ -53,40 +52,43 @@ export function todayFor(timezone: string) {
 }
 
 /** Returns today's drill, creating it on first visit. */
-export function getOrCreateDrill(student: Student, timezone: string) {
+export async function getOrCreateDrill(student: Student, timezone: string) {
+  const db = await getDb();
   const date = todayFor(timezone);
-  const existing = db.select().from(schema.drills)
-    .where(and(eq(schema.drills.studentId, student.id), eq(schema.drills.date, date))).get();
+  const where = and(eq(schema.drills.studentId, student.id), eq(schema.drills.date, date));
+  const [existing] = await db.select().from(schema.drills).where(where);
   if (existing) return existing;
 
-  unlockNext(student.id);
-  const focus = parseFocus(student);
-  // Focus skills are practiced even if the curriculum hasn't reached them yet.
-  for (const skillId of focus) {
-    db.insert(schema.studentSkills).values({ studentId: student.id, skillId, unlockedAt: new Date() }).onConflictDoNothing().run();
-  }
-  const skills = chooseDrillSkills(toStates(skillRows(student.id)), student.dailyProblems, focus);
-  const rand = seededRandom(Date.now() ^ student.id.charCodeAt(0));
+  return db.transaction(async (tx) => {
+    await unlockNext(student.id, tx);
+    const focus = parseFocus(student);
+    // Focus skills are practiced even if the curriculum hasn't reached them yet.
+    if (focus.length) {
+      await tx.insert(schema.studentSkills).values(focus.map((skillId) => ({ studentId: student.id, skillId }))).onConflictDoNothing();
+    }
+    const skills = chooseDrillSkills(toStates(await skillRows(student.id, tx)), student.dailyProblems, focus);
 
-  return db.transaction((tx) => {
-    const raced = tx.select().from(schema.drills)
-      .where(and(eq(schema.drills.studentId, student.id), eq(schema.drills.date, date))).get();
-    if (raced) return raced;
-    const drill = tx.insert(schema.drills).values({ studentId: student.id, date, total: skills.length }).returning().get();
-    skills.forEach((skillId, position) => {
+    // Two tabs opening the drill at once both get here; the unique index picks one winner.
+    const [drill] = await tx.insert(schema.drills).values({ studentId: student.id, date, total: skills.length })
+      .onConflictDoNothing().returning();
+    if (!drill) return (await tx.select().from(schema.drills).where(where))[0];
+
+    const rand = seededRandom(Date.now() ^ student.id.charCodeAt(0));
+    await tx.insert(schema.drillProblems).values(skills.map((skillId, position) => {
       const p = SKILLS_BY_ID.get(skillId)!.generate(rand);
-      tx.insert(schema.drillProblems).values({
+      return {
         drillId: drill.id, position, skillId, prompt: p.prompt, answer: p.answer, answerKind: p.answerKind,
-        choices: p.choices ? JSON.stringify(p.choices) : null, hint: p.hint, explanation: p.explanation,
-      }).run();
-    });
+        choices: p.choices ?? null, hint: p.hint, explanation: p.explanation,
+      };
+    }));
     return drill;
   });
 }
 
-export function drillProblems(drillId: string) {
+export async function drillProblems(drillId: string, tx?: Tx) {
+  const db = tx ?? (await getDb());
   return db.select().from(schema.drillProblems).where(eq(schema.drillProblems.drillId, drillId))
-    .orderBy(asc(schema.drillProblems.position)).all();
+    .orderBy(asc(schema.drillProblems.position));
 }
 
 export const MAX_TRIES = 2;
@@ -96,7 +98,7 @@ export function problemView(p: typeof schema.drillProblems.$inferSelect) {
   const done = p.solved !== null;
   return {
     id: p.id, position: p.position, prompt: p.prompt, answerKind: p.answerKind,
-    choices: p.choices ? (JSON.parse(p.choices) as string[]) : null,
+    choices: p.choices,
     skillName: SKILLS_BY_ID.get(p.skillId)?.name ?? p.skillId,
     tries: p.tries, usedHint: p.usedHint, lastAnswer: p.lastAnswer, done, solved: p.solved,
     hint: p.usedHint || done ? p.hint : null,
@@ -105,73 +107,81 @@ export function problemView(p: typeof schema.drillProblems.$inferSelect) {
   };
 }
 
-function recordSkillResult(studentId: string, skillId: string, correct: boolean) {
-  const row = db.select().from(schema.studentSkills)
-    .where(and(eq(schema.studentSkills.studentId, studentId), eq(schema.studentSkills.skillId, skillId))).get();
+async function recordSkillResult(tx: Tx, studentId: string, skillId: string, correct: boolean) {
+  const key = and(eq(schema.studentSkills.studentId, studentId), eq(schema.studentSkills.skillId, skillId));
+  const [row] = await tx.select().from(schema.studentSkills).where(key).for("update");
   const mastery = updateMastery(row?.mastery ?? 0, correct);
   const attempts = (row?.attempts ?? 0) + 1;
+  const correctTotal = (row?.correct ?? 0) + (correct ? 1 : 0);
   const now = new Date();
   const masteredAt = row?.masteredAt ?? (isMastered(mastery, attempts) ? now : null);
-  db.insert(schema.studentSkills).values({
-    studentId, skillId, mastery, attempts, correct: (row?.correct ?? 0) + (correct ? 1 : 0),
-    unlockedAt: row?.unlockedAt ?? now, masteredAt, lastPracticedAt: now,
+  await tx.insert(schema.studentSkills).values({
+    studentId, skillId, mastery, attempts, correct: correctTotal, masteredAt, lastPracticedAt: now,
   }).onConflictDoUpdate({
     target: [schema.studentSkills.studentId, schema.studentSkills.skillId],
-    set: { mastery, attempts, correct: (row?.correct ?? 0) + (correct ? 1 : 0), masteredAt, lastPracticedAt: now },
-  }).run();
+    set: { mastery, attempts, correct: correctTotal, masteredAt, lastPracticedAt: now },
+  });
   const newlyMastered = !row?.masteredAt && masteredAt !== null;
-  if (newlyMastered) unlockNext(studentId);
+  if (newlyMastered) await unlockNext(studentId, tx);
   return newlyMastered;
 }
 
 /** Applies a student's answer or hint request to a drill problem. */
-export function actOnProblem(studentId: string, problemId: string, action: { type: "answer"; answer: string } | { type: "hint" }) {
-  const problem = db.select().from(schema.drillProblems).where(eq(schema.drillProblems.id, problemId)).get();
-  if (!problem) return null;
-  const drill = db.select().from(schema.drills).where(eq(schema.drills.id, problem.drillId)).get();
-  if (!drill || drill.studentId !== studentId) return null;
-  if (problem.solved !== null) return { problem: problemView(problem), correct: problem.solved, mastered: null, drillDone: drill.completedAt !== null };
+export async function actOnProblem(studentId: string, problemId: string, action: { type: "answer"; answer: string } | { type: "hint" }) {
+  const db = await getDb();
+  return db.transaction(async (tx) => {
+    // Lock the problem so a double-tapped "Check" can't be counted twice.
+    const [found] = await tx.select({ problem: schema.drillProblems, drill: schema.drills })
+      .from(schema.drillProblems).innerJoin(schema.drills, eq(schema.drills.id, schema.drillProblems.drillId))
+      .where(eq(schema.drillProblems.id, problemId)).for("update");
+    if (!found || found.drill.studentId !== studentId) return null;
+    const { problem, drill } = found;
+    if (problem.solved !== null) return { problem: problemView(problem), correct: problem.solved, mastered: null, drillDone: drill.completedAt !== null };
 
-  if (action.type === "hint") {
-    const updated = db.update(schema.drillProblems).set({ usedHint: true })
-      .where(eq(schema.drillProblems.id, problemId)).returning().get();
-    return { problem: problemView(updated), correct: null, mastered: null, drillDone: false };
-  }
-
-  const answer = action.answer.slice(0, 50);
-  const correct = checkAnswer(problem.answerKind, problem.answer, answer);
-  const tries = problem.tries + 1;
-  const finished = correct || tries >= MAX_TRIES;
-  const updated = db.update(schema.drillProblems).set({
-    tries, lastAnswer: answer,
-    ...(finished ? {
-      solved: correct,
-      firstTryCorrect: correct && tries === 1 && !problem.usedHint,
-      answeredAt: new Date(),
-    } : {}),
-  }).where(eq(schema.drillProblems.id, problemId)).returning().get();
-
-  let mastered: string | null = null;
-  let drillDone = false;
-  if (finished) {
-    if (recordSkillResult(studentId, problem.skillId, !!updated.firstTryCorrect)) {
-      mastered = SKILLS_BY_ID.get(problem.skillId)?.name ?? problem.skillId;
+    if (action.type === "hint") {
+      const [updated] = await tx.update(schema.drillProblems).set({ usedHint: true })
+        .where(eq(schema.drillProblems.id, problemId)).returning();
+      return { problem: problemView(updated), correct: null, mastered: null, drillDone: false };
     }
-    const all = drillProblems(drill.id);
-    const correctCount = all.filter((p) => p.firstTryCorrect).length;
-    drillDone = all.every((p) => p.solved !== null);
-    db.update(schema.drills).set({ correctCount, ...(drillDone ? { completedAt: new Date() } : {}) })
-      .where(eq(schema.drills.id, drill.id)).run();
-  }
-  return { problem: problemView(updated), correct, mastered, drillDone };
+
+    const answer = action.answer.slice(0, 50);
+    const correct = checkAnswer(problem.answerKind, problem.answer, answer);
+    const tries = problem.tries + 1;
+    const finished = correct || tries >= MAX_TRIES;
+    const [updated] = await tx.update(schema.drillProblems).set({
+      tries, lastAnswer: answer,
+      ...(finished ? {
+        solved: correct,
+        firstTryCorrect: correct && tries === 1 && !problem.usedHint,
+        answeredAt: new Date(),
+      } : {}),
+    }).where(eq(schema.drillProblems.id, problemId)).returning();
+
+    let mastered: string | null = null;
+    let drillDone = false;
+    if (finished) {
+      if (await recordSkillResult(tx, studentId, problem.skillId, !!updated.firstTryCorrect)) {
+        mastered = SKILLS_BY_ID.get(problem.skillId)?.name ?? problem.skillId;
+      }
+      const all = await drillProblems(drill.id, tx);
+      const correctCount = all.filter((p) => p.firstTryCorrect).length;
+      drillDone = all.every((p) => p.solved !== null);
+      await tx.update(schema.drills).set({ correctCount, ...(drillDone ? { completedAt: new Date() } : {}) })
+        .where(eq(schema.drills.id, drill.id));
+    }
+    return { problem: problemView(updated), correct, mastered, drillDone };
+  });
 }
 
-export function studentStats(student: Student, timezone: string) {
-  const completed = db.select({ date: schema.drills.date, total: schema.drills.total, correct: schema.drills.correctCount })
-    .from(schema.drills).where(and(eq(schema.drills.studentId, student.id), isNotNull(schema.drills.completedAt)))
-    .orderBy(desc(schema.drills.date)).all();
+export async function studentStats(student: Student, timezone: string) {
+  const db = await getDb();
+  const [completed, rows] = await Promise.all([
+    db.select({ date: schema.drills.date, total: schema.drills.total, correct: schema.drills.correctCount })
+      .from(schema.drills).where(and(eq(schema.drills.studentId, student.id), isNotNull(schema.drills.completedAt)))
+      .orderBy(desc(schema.drills.date)),
+    skillRows(student.id),
+  ]);
   const today = todayFor(timezone);
-  const rows = skillRows(student.id);
   const totalProblems = completed.reduce((n, d) => n + d.total, 0);
   const totalCorrect = completed.reduce((n, d) => n + d.correct, 0);
   return {

@@ -1,15 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { requireStudent } from "@/lib/auth";
 import { NewHomework } from "./NewHomework";
 
 export default async function HomeworkPage() {
   const { student } = await requireStudent();
   if (!student.homeworkEnabled) redirect("/student");
-  const sessions = db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
-    .orderBy(desc(schema.homeworkSessions.updatedAt)).limit(20).all();
+  const db = await getDb();
+  const sessions = await db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
+    .orderBy(desc(schema.homeworkSessions.updatedAt)).limit(20);
 
   return (
     <div className="space-y-6">

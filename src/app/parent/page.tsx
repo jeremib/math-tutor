@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { requireParent } from "@/lib/auth";
 import { GRADE_LABELS } from "@/lib/curriculum";
 import { studentStats } from "@/lib/learning";
@@ -12,8 +12,12 @@ const AVATARS = ["🦊", "🐼", "🐯", "🐸", "🦄", "🐙", "🦖", "🐧",
 
 export default async function ParentDashboard() {
   const { family } = await requireParent();
-  const students = db.select().from(schema.students).where(eq(schema.students.familyId, family.id)).all();
-  const parents = db.select().from(schema.parents).where(eq(schema.parents.familyId, family.id)).all();
+  const db = await getDb();
+  const [students, parents] = await Promise.all([
+    db.select().from(schema.students).where(eq(schema.students.familyId, family.id)).orderBy(schema.students.createdAt),
+    db.select().from(schema.parents).where(eq(schema.parents.familyId, family.id)).orderBy(schema.parents.createdAt),
+  ]);
+  const allStats = await Promise.all(students.map((s) => studentStats(s, family.timezone)));
 
   return (
     <div className="space-y-8">
@@ -31,8 +35,8 @@ export default async function ParentDashboard() {
 
       {students.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          {students.map((s) => {
-            const stats = studentStats(s, family.timezone);
+          {students.map((s, i) => {
+            const stats = allStats[i];
             return (
               <Link key={s.id} href={`/parent/students/${s.id}`} className="card block transition hover:ring-brand-500">
                 <div className="flex items-center gap-3">
