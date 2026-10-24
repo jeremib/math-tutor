@@ -1,0 +1,49 @@
+# Production stack for server.styros.tech (same pattern as fivebar).
+# Secrets come from a .env file next to this compose file.
+# Build and run on the server:  docker compose -f docker-compose.prod.yml up -d --build
+# Then point a 1Panel website (mathbuddy.styros.tech, HTTPS) at 127.0.0.1:${APP_PORT}.
+services:
+  app:
+    build: .
+    image: registry.styros.tech/math-tutor:latest
+    container_name: math-tutor-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-3045}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-mathtutor}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@math-tutor-db:5432/${POSTGRES_DB:-mathtutor}
+      - NODE_ENV=production
+      - DATA_DIR=/data
+      # Optional: the homework helper is off without it.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - math_tutor_data:/data
+    networks: [math-tutor-network]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: math-tutor-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-mathtutor}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-mathtutor}
+    volumes:
+      - math_tutor_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mathtutor} -d ${POSTGRES_DB:-mathtutor}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # No host port: only reachable on the internal network.
+    networks: [math-tutor-network]
+
+networks:
+  math-tutor-network: {}
+
+volumes:
+  math_tutor_data: {}
+  math_tutor_pg: {}
