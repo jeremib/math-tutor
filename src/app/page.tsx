@@ -25,6 +25,7 @@ export default async function Home() {
 
       <Hero />
       <HelperRules />
+      <MistakeCoach />
       <ParentView />
       <Practice />
       <Setup />
@@ -178,6 +179,53 @@ function HelperRules() {
   );
 }
 
+const COACH_POINTS = [
+  ["Works out why", "When your child misses a drill problem, Math Buddy looks at their exact wrong answer and explains what likely went wrong, in words they understand."],
+  ["Reads their work", "Kids can draw out their steps on a scratchpad. Math Buddy reads it line by line and points to the first step that went wrong."],
+  ["Practices the weak spot", "A repeated mistake gets practice problems aimed right at it in the next drills, until your child gets them right."],
+  ["Turns homework into practice", "After a homework problem is solved, Math Buddy writes a few like it with new numbers, so the idea sticks."],
+];
+
+function MistakeCoach() {
+  return (
+    <section className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-20 lg:grid-cols-2">
+      <div>
+        <p className="hand text-2xl text-brand-600">when they get it wrong</p>
+        <h2 className="display mt-2 text-4xl font-extrabold leading-tight sm:text-5xl">It finds the why behind a wrong answer.</h2>
+        <dl className="mt-8 space-y-5">
+          {COACH_POINTS.map(([title, body]) => (
+            <div key={title}>
+              <dt className="display text-lg font-bold">{title}</dt>
+              <dd className="mt-1 text-slate-600">{body}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      <figure className="relative mx-auto w-full max-w-md" aria-label="Example of a diagnosed drill mistake">
+        <div className="rounded-[28px] bg-white p-6 shadow-xl ring-1 ring-slate-200">
+          <p className="text-sm font-semibold text-slate-400">Problem 3 of 8 · Adding unlike fractions</p>
+          <p className="display my-5 text-center text-4xl font-extrabold">1/3 + 1/4 = ?</p>
+          <div className="photo relative rounded-xl p-4 ring-1 ring-slate-200">
+            <p className="hand text-2xl leading-relaxed">1 + 1 = 2<br />3 + 4 = 7<br />so 2/7</p>
+            <span className="absolute right-3 top-3 rounded bg-slate-900/80 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">Their work</span>
+          </div>
+          <div className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-violet-900 ring-1 ring-violet-200">
+            <div className="mb-0.5 text-xs font-bold uppercase tracking-wide text-violet-500">Math Buddy noticed</div>
+            You added the tops and the bottoms. The bottoms tell you the size of the pieces, so make them match first: 4/12 + 3/12.
+          </div>
+        </div>
+        <div className="hand absolute -bottom-6 -right-2 rotate-2 rounded-lg bg-[#fff6c7] px-4 py-2 text-xl shadow-md sm:-right-8">
+          next drill: 2 problems just for this 🎯
+        </div>
+        <figcaption className="sr-only">
+          A student answers 2/7 for 1/3 + 1/4. Math Buddy reads the work, explains that they added the tops and the bottoms, and adds targeted practice to the next drill.
+        </figcaption>
+      </figure>
+    </section>
+  );
+}
+
 const SESSIONS = [
   { title: "Worksheet photo · fractions", meta: "Tue · 9 messages", solved: true },
   { title: "Area of an L-shaped room", meta: "Mon · 14 messages", solved: true },
@@ -220,7 +268,7 @@ function ParentView() {
           Every homework session is saved with the photo and the full chat, so you can see where your child got stuck and how they got unstuck.
         </p>
         <p className="mt-3 text-lg text-slate-600">
-          You decide whether the helper is on for each child. Daily drills work either way.
+          You&rsquo;ll also see the mistakes Math Buddy keeps noticing, like &ldquo;adds the tops and the bottoms&rdquo;, and when each one is fixed. You decide whether the homework helper is on for each child.
         </p>
       </div>
     </section>
