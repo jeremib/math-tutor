@@ -14,6 +14,7 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 DATA_DIR=/data
 COPY --from=build /app/package.json /app/next.config.ts ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/.next ./.next
+COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
 RUN mkdir -p /data && chown node:node /data
 USER node
