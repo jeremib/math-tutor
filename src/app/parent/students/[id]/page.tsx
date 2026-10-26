@@ -8,6 +8,7 @@ import { parseFocus, studentStats } from "@/lib/learning";
 import { gameProfile } from "@/lib/achievements";
 import { levelTitle } from "@/lib/gamification";
 import { earnedMastery } from "@/lib/progress";
+import { RESOLVE_AFTER } from "@/lib/practice";
 import { WeekTracker } from "@/components/WeekTracker";
 import { ActionForm } from "@/components/ActionForm";
 import { MasteryBar, Stat, XpBar } from "@/components/ui";
@@ -21,7 +22,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
   const db = await getDb();
   const focus = new Set(parseFocus(student));
-  const [stats, game, homework, misses] = await Promise.all([
+  const [stats, game, homework, misses, noticed] = await Promise.all([
     studentStats(student, family.timezone),
     gameProfile(student, family.timezone),
     db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
@@ -30,7 +31,12 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
     .from(schema.drillProblems).innerJoin(schema.drills, eq(schema.drills.id, schema.drillProblems.drillId))
     .where(and(eq(schema.drills.studentId, student.id), eq(schema.drillProblems.firstTryCorrect, false)))
     .orderBy(desc(schema.drillProblems.answeredAt)).limit(8),
+    db.select().from(schema.misconceptions).where(eq(schema.misconceptions.studentId, student.id))
+    .orderBy(desc(schema.misconceptions.lastSeenAt)).limit(20),
   ]);
+  const openMisconceptions = noticed.filter((m) => !m.resolvedAt);
+  const fixedMisconceptions = noticed.filter((m) => m.resolvedAt).slice(0, 5);
+  const labels = new Map(noticed.map((m) => [m.id, m.label]));
 
   const byGrade = new Map<number, typeof stats.skills>();
   for (const s of stats.skills) byGrade.set(s.skill!.grade, [...(byGrade.get(s.skill!.grade) ?? []), s]);
@@ -112,6 +118,33 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
         </section>
       </div>
 
+      <section className="card">
+        <h2 className="text-xl font-bold">🔍 What Math Buddy noticed</h2>
+        <p className="mb-4 text-sm text-slate-500">
+          When {student.name} misses a drill problem, Math Buddy works out why from the exact wrong answer. Repeated mistakes show up here,
+          and the next drills include practice aimed at them. One is marked fixed after {RESOLVE_AFTER} of those are right on the first try.
+        </p>
+        {openMisconceptions.length || fixedMisconceptions.length ? (
+          <ul className="space-y-2">
+            {openMisconceptions.map((m) => (
+              <li key={m.id} className="rounded-xl bg-violet-50 p-3 ring-1 ring-violet-100">
+                <div className="font-semibold text-violet-950">{m.label}</div>
+                <div className="mt-0.5 text-sm text-violet-800">
+                  {SKILLS_BY_ID.get(m.skillId)?.name ?? m.skillId} · seen {m.timesSeen} time{m.timesSeen === 1 ? "" : "s"}, last {m.lastSeenAt.toLocaleDateString()}
+                  {" · "}practice {Math.min(m.practicedCorrect, RESOLVE_AFTER)}/{RESOLVE_AFTER} right
+                </div>
+              </li>
+            ))}
+            {fixedMisconceptions.map((m) => (
+              <li key={m.id} className="rounded-xl bg-slate-50 p-3">
+                <div className="font-semibold text-slate-500 line-through decoration-slate-300">{m.label}</div>
+                <div className="mt-0.5 text-sm font-semibold text-emerald-700">✓ Fixed {m.resolvedAt!.toLocaleDateString()}</div>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-sm text-slate-500">Nothing yet. Patterns show up here after a few missed drill problems.</p>}
+      </section>
+
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="card lg:col-span-3">
           <h2 className="text-xl font-bold">Skills</h2>
@@ -157,6 +190,9 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                       Answered {p.lastAnswer ?? "–"} · correct: {p.answer} · {SKILLS_BY_ID.get(p.skillId)?.name} · {date}
                       {p.usedHint ? " · used hint" : ""}
                     </div>
+                    {p.misconceptionId && labels.has(p.misconceptionId) && (
+                      <div className="mt-1 text-violet-800">🔍 {labels.get(p.misconceptionId)}</div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -170,7 +206,14 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                 {homework.map((h) => (
                   <li key={h.id}>
                     <Link href={`/parent/students/${student.id}/homework/${h.id}`} className="flex justify-between gap-2 rounded-lg p-2 hover:bg-slate-50">
-                      <span className="truncate font-semibold">{h.title}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">{h.title}</span>
+                        {SKILLS_BY_ID.has(h.skillId ?? "") && (
+                          <span className="block text-xs text-slate-500">
+                            {SKILLS_BY_ID.get(h.skillId!)!.name}{h.practiceAdded ? ` · +${h.practiceAdded} practice` : ""}
+                          </span>
+                        )}
+                      </span>
                       <span className={h.status === "solved" ? "text-emerald-600" : "text-slate-400"}>{h.status === "solved" ? "Solved" : h.updatedAt.toLocaleDateString()}</span>
                     </Link>
                   </li>

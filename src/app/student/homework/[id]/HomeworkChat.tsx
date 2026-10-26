@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ChatLog, type ChatMessage } from "@/components/ChatLog";
 import { Celebration } from "@/components/Celebration";
+import { Scratchpad, type ScratchpadHandle } from "@/components/Scratchpad";
 import type { AwardSummary } from "@/lib/achievements";
 
 export function HomeworkChat({ sessionId, studentName, initialMessages, initialSolved }: {
@@ -19,6 +20,9 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
   const [error, setError] = useState<string | null>(null);
   const [award, setAward] = useState<AwardSummary | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const scratch = useRef<ScratchpadHandle>(null);
+  const [showWork, setShowWork] = useState(false);
+  const [hasDrawing, setHasDrawing] = useState(false);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
@@ -30,20 +34,27 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const content = text.trim();
-    if (!content) return;
+    const work = showWork ? await scratch.current?.toBlob() : null;
+    if (!content && !work) return;
     setBusy(true);
     setError(null);
-    setMessages((m) => [...m, { id: `local-${Date.now()}`, role: "user", content }]);
+    const imageUrl = work ? URL.createObjectURL(work) : null;
+    setMessages((m) => [...m, { id: `local-${Date.now()}`, role: "user", content: content || "Here's my work so far.", imageUrl }]);
     setText("");
     try {
-      const res = await fetch(`/api/homework/${sessionId}/messages`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: content }),
-      });
+      const form = new FormData();
+      form.append("text", content);
+      if (work) form.append("work", work, "work.png");
+      const res = await fetch(`/api/homework/${sessionId}/messages`, { method: "POST", body: form });
       const data = await res.json().catch(() => ({ error: "Something went wrong." }));
       if (!res.ok) throw new Error(data.error);
       setMessages((m) => [...m, { id: `reply-${Date.now()}`, role: "assistant", content: data.reply }]);
       if (data.solved) setSolved(true);
       if (data.rewards) setAward(data.rewards);
+      if (work) {
+        scratch.current?.clear();
+        setShowWork(false);
+      }
     } catch (err) {
       setMessages((m) => m.slice(0, -1));
       setText(content);
@@ -63,13 +74,22 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
         <div className="rounded-2xl bg-emerald-50 p-4 text-center ring-1 ring-emerald-200">
           <div className="text-3xl">🎉</div>
           <div className="font-bold text-emerald-700">You solved it yourself!</div>
+          <p className="text-sm text-emerald-700">Watch for a few problems like this one in your next drill.</p>
           <Link href="/student/homework" className="btn mt-3">Next problem</Link>
         </div>
       )}
       {error && <p className="error">{error}</p>}
-      <form onSubmit={send} className="sticky bottom-4 flex gap-2 rounded-2xl bg-white p-2 shadow-lg ring-1 ring-slate-200">
-        <input value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} className="input border-0 focus:ring-0" placeholder={solved ? "Any other questions?" : "Type your answer or question…"} aria-label="Message" />
-        <button className="btn" disabled={busy || !text.trim()}>Send</button>
+      <form onSubmit={send} className="sticky bottom-4 space-y-2 rounded-2xl bg-white p-2 shadow-lg ring-1 ring-slate-200">
+        {showWork && <Scratchpad ref={scratch} height={220} onChange={(empty) => setHasDrawing(!empty)} />}
+        <div className="flex gap-2">
+          <button
+            type="button" onClick={() => { setShowWork((v) => !v); setHasDrawing(false); }}
+            className={`shrink-0 rounded-xl px-3 font-semibold ring-1 ${showWork ? "bg-brand-50 text-brand-700 ring-brand-200" : "text-slate-600 ring-slate-300 hover:bg-slate-50"}`}
+            aria-pressed={showWork} title="Draw your work so Math Buddy can check each step"
+          >✏️<span className="sr-only sm:not-sr-only sm:ml-1">Show work</span></button>
+          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} className="input border-0 focus:ring-0" placeholder={solved ? "Any other questions?" : showWork ? "Add a note (optional)" : "Type your answer or question…"} aria-label="Message" />
+          <button className="btn" disabled={busy || (!text.trim() && !hasDrawing)}>Send</button>
+        </div>
       </form>
       <div ref={bottom} />
     </div>

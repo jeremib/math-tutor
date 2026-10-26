@@ -5,6 +5,7 @@ import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { sessionMessages } from "@/lib/tutor";
 import { ChatLog } from "@/components/ChatLog";
+import { SKILLS_BY_ID } from "@/lib/curriculum";
 
 export default async function HomeworkTranscript({ params }: { params: Promise<{ id: string; sessionId: string }> }) {
   const { id, sessionId } = await params;
@@ -22,12 +23,14 @@ export default async function HomeworkTranscript({ params }: { params: Promise<{
       <h1 className="text-2xl font-extrabold">{session.title}</h1>
       <p className="text-sm text-slate-500">
         {session.createdAt.toLocaleString()} · {session.status === "solved" ? "Solved by " + student.name : "In progress"}
+        {SKILLS_BY_ID.has(session.skillId ?? "") && <> · {SKILLS_BY_ID.get(session.skillId!)!.name}</>}
+        {session.practiceAdded > 0 && <> · {session.practiceAdded} practice problems added to drills</>}
       </p>
       {session.imagePath && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`/api/uploads/${session.imagePath}`} alt="Homework problem" className="max-h-96 rounded-xl ring-1 ring-slate-200" />
       )}
-      <ChatLog messages={(await sessionMessages(session.id)).map((m) => ({ id: m.id, role: m.role, content: m.content }))} studentName={student.name} />
+      <ChatLog messages={(await sessionMessages(session.id)).map((m) => ({ id: m.id, role: m.role, content: m.content, imageUrl: m.imagePath ? `/api/uploads/${m.imagePath}` : null }))} studentName={student.name} />
     </div>
   );
 }

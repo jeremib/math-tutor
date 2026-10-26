@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, integer, doublePrecision, boolean, timestamp, jsonb, primaryKey, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 const id = () => text("id").primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -85,7 +86,17 @@ export const drillProblems = pgTable("drill_problems", {
   firstTryCorrect: boolean("first_try_correct"),
   solved: boolean("solved"),
   answeredAt: timestamp("answered_at", { withTimezone: true }),
-}, (t) => [index("drill_problems_drill").on(t.drillId)]);
+  /** Where the problem came from: the curriculum generator, or a practice problem Claude wrote. */
+  source: text("source", { enum: ["curriculum", "misconception", "homework"] }).notNull().default("curriculum"),
+  /** For practice problems: the misconception they target. For missed problems: what Claude found. */
+  misconceptionId: text("misconception_id").references(() => misconceptions.id, { onDelete: "set null" }),
+  wrongAnswers: jsonb("wrong_answers").$type<string[]>().notNull().default([]),
+  /** A drawing of the student's work, sent along when their answer is diagnosed. */
+  workImagePath: text("work_image_path"),
+  /** Claude's note to the student about their wrong answer. */
+  feedback: text("feedback"),
+  feedbackStatus: text("feedback_status", { enum: ["pending", "done", "failed"] }),
+}, (t) => [index("drill_problems_drill").on(t.drillId), index("drill_problems_work_image").on(t.workImagePath)]);
 
 export const homeworkSessions = pgTable("homework_sessions", {
   id: id(),
@@ -95,6 +106,10 @@ export const homeworkSessions = pgTable("homework_sessions", {
   imagePath: text("image_path"),
   imageType: text("image_type"),
   status: text("status", { enum: ["active", "solved"] }).notNull().default("active"),
+  /** The curriculum skill Claude matched the problem to once it was solved. */
+  skillId: text("skill_id"),
+  /** Practice problems queued from this session for the next drill. */
+  practiceAdded: integer("practice_added").notNull().default(0),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("homework_student").on(t.studentId), index("homework_image").on(t.imagePath)]);
@@ -104,8 +119,46 @@ export const homeworkMessages = pgTable("homework_messages", {
   sessionId: text("session_id").notNull().references(() => homeworkSessions.id, { onDelete: "cascade" }),
   role: text("role", { enum: ["user", "assistant"] }).notNull(),
   content: text("content").notNull(),
+  /** A drawing of the student's work attached to this message. */
+  imagePath: text("image_path"),
+  imageType: text("image_type"),
   createdAt: createdAt(),
-}, (t) => [index("homework_messages_session").on(t.sessionId, t.createdAt)]);
+}, (t) => [index("homework_messages_session").on(t.sessionId, t.createdAt), index("homework_messages_image").on(t.imagePath)]);
+
+/** A recurring mistake Claude spotted in a student's wrong answers, e.g. adding denominators. */
+export const misconceptions = pgTable("misconceptions", {
+  id: id(),
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  skillId: text("skill_id").notNull(),
+  /** Short kebab-case key Claude reuses when it sees the same mistake again. */
+  tag: text("tag").notNull(),
+  /** One sentence for parents. */
+  label: text("label").notNull(),
+  timesSeen: integer("times_seen").notNull().default(1),
+  /** Targeted practice problems answered right on the first try. */
+  practicedCorrect: integer("practiced_correct").notNull().default(0),
+  createdAt: createdAt(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+}, (t) => [uniqueIndex("misconceptions_open_tag").on(t.studentId, t.tag).where(sql`${t.resolvedAt} is null`)]);
+
+/** Practice problems Claude wrote, waiting to be mixed into the student's next drill. */
+export const practiceProblems = pgTable("practice_problems", {
+  id: id(),
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  source: text("source", { enum: ["misconception", "homework"] }).notNull(),
+  misconceptionId: text("misconception_id").references(() => misconceptions.id, { onDelete: "set null" }),
+  homeworkSessionId: text("homework_session_id").references(() => homeworkSessions.id, { onDelete: "set null" }),
+  skillId: text("skill_id").notNull(),
+  prompt: text("prompt").notNull(),
+  answer: text("answer").notNull(),
+  answerKind: text("answer_kind", { enum: ["number", "remainder"] }).notNull(),
+  hint: text("hint").notNull(),
+  explanation: text("explanation").notNull(),
+  createdAt: createdAt(),
+  /** Set when the problem is placed into a drill. */
+  usedAt: timestamp("used_at", { withTimezone: true }),
+}, (t) => [index("practice_problems_student").on(t.studentId, t.usedAt)]);
 
 export const xpEvents = pgTable("xp_events", {
   id: id(),

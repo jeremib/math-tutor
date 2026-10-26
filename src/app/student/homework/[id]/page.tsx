@@ -26,7 +26,7 @@ export default async function HomeworkSessionPage({ params }: { params: Promise<
         sessionId={session.id}
         studentName={student.name}
         initialSolved={session.status === "solved"}
-        initialMessages={(await sessionMessages(session.id)).map((m) => ({ id: m.id, role: m.role, content: m.content }))}
+        initialMessages={(await sessionMessages(session.id)).map((m) => ({ id: m.id, role: m.role, content: m.content, imageUrl: m.imagePath ? `/api/uploads/${m.imagePath}` : null }))}
       />
     </div>
   );

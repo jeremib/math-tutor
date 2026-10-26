@@ -1,4 +1,4 @@
-export type ChatMessage = { id: string; role: "user" | "assistant"; content: string };
+export type ChatMessage = { id: string; role: "user" | "assistant"; content: string; imageUrl?: string | null };
 
 export function ChatLog({ messages, studentName }: { messages: ChatMessage[]; studentName: string }) {
   return (
@@ -9,6 +9,10 @@ export function ChatLog({ messages, studentName }: { messages: ChatMessage[]; st
             <div className={`mb-0.5 text-xs font-bold ${m.role === "user" ? "text-brand-100" : "text-slate-400"}`}>
               {m.role === "user" ? studentName : "Math Buddy"}
             </div>
+            {m.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={m.imageUrl} alt={`${studentName}'s work`} className="mb-2 max-h-64 rounded-lg bg-white" />
+            )}
             {m.content}
           </div>
         </div>

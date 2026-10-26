@@ -9,6 +9,9 @@ Family math tutoring: short daily drills that adapt to each child, plus a homewo
 - **Daily drills.** Each day's set is mostly the skills the child is learning now (or the parent's chosen focus skills), plus review of mastered skills. Kids get two tries, an optional hint, and a worked explanation.
 - **Progression.** A skill is mastered after at least 8 attempts with high recent accuracy. Mastering a skill unlocks the next one in the K–8 curriculum (`src/lib/curriculum.ts`), across grade levels too.
 - **Homework helper.** Kids upload a photo or type a problem. Claude tutors them step by step with questions and never gives the final answer. Parents can read every conversation.
+- **Mistake diagnosis.** When a child misses a drill problem, Claude works out why from their exact wrong answers (and their drawn work, if any) and explains it to them. Repeated mistakes are recorded as misconceptions (e.g. "adds the tops and the bottoms"), shown to parents, and targeted with practice problems in the next drills. Two targeted problems right on the first try mark one fixed. Logic in `src/lib/coach.ts` and `src/lib/practice.ts`.
+- **Show your work.** A scratchpad in drills and homework chats. Claude reads the drawing step by step and points to the first line that went wrong.
+- **Homework becomes practice.** When a homework problem is solved, Claude matches it to a curriculum skill and writes 3 similar problems with different numbers. They're mixed into upcoming drills and count toward that skill's mastery.
 - **Gamification.** Kids earn XP for a daily check-in (more for consecutive days), correct answers, finished and perfect drills, mastered skills, solved homework (up to 3 a day) and hitting their weekly goal. XP raises their level, unlocks new avatars, and earns 18 badges. Parents can set real-world rewards ("Pick Friday's movie at 500 more XP") and mark them as given. Rules live in `src/lib/gamification.ts`; awards in `src/lib/achievements.ts`, recorded once each so refreshing can't earn XP twice.
 - **Parent dashboard.** Shows streaks, first-try accuracy, mastery per skill, recent misses and homework sessions. Parents set drill length, grade, focus skills and PIN, and can turn the homework helper on or off.
 
@@ -20,7 +23,7 @@ cp .env.example .env.local   # add your ANTHROPIC_API_KEY
 npm run dev                  # http://localhost:3000
 ```
 
-Drills work without an API key; the homework helper needs one.
+Drills work without an API key; the homework helper, mistake diagnosis and practice problems need one.
 
 ```bash
 npm test        # curriculum, answer checking and progression logic
@@ -50,6 +53,8 @@ Uploaded homework photos are stored on disk in `DATA_DIR/uploads`. If you run mo
 | `src/db/` | Schema and connection (Postgres or PGlite) |
 | `drizzle/` | SQL migrations |
 | `src/lib/tutor.ts` | Homework tutor prompt and Claude API call |
+| `src/lib/coach.ts` | Mistake diagnosis and homework practice (Claude structured outputs) |
+| `src/lib/practice.ts` | Validating Claude-written problems and mixing them into drills (pure, unit-tested) |
 | `src/lib/auth.ts` | Cookie sessions for parents and students |
 | `src/app/parent`, `src/app/student` | The two sides of the app |
 

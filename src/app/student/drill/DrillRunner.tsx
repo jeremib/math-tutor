@@ -1,14 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { problemView } from "@/lib/learning";
 import type { AwardSummary } from "@/lib/achievements";
 import { Celebration } from "@/components/Celebration";
+import { Scratchpad, type ScratchpadHandle } from "@/components/Scratchpad";
 
 type Problem = ReturnType<typeof problemView>;
 
 const CHEERS = ["Nice work!", "You got it!", "Awesome!", "Great thinking!", "Super!", "Way to go!"];
+
+const SOURCE_LABELS: Record<Problem["source"], string | null> = {
+  curriculum: null,
+  misconception: "🎯 Extra practice",
+  homework: "📚 Like your homework",
+};
 
 export function DrillRunner({ initialProblems, name }: { initialProblems: Problem[]; name: string }) {
   const [problems, setProblems] = useState(initialProblems);
@@ -21,6 +28,9 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
   const [award, setAward] = useState<AwardSummary | null>(null);
   const [sessionXp, setSessionXp] = useState(0);
   const [sessionBadges, setSessionBadges] = useState<AwardSummary["badges"]>([]);
+  const [showWork, setShowWork] = useState(false);
+  const [diagnosing, setDiagnosing] = useState<string | null>(null);
+  const scratch = useRef<ScratchpadHandle>(null);
 
   const problem = problems[index];
   const correctCount = useMemo(() => problems.filter((p) => p.done && p.solved && p.tries === 1 && !p.usedHint).length, [problems]);
@@ -40,6 +50,7 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
         // Small wins show inline; level-ups, badges and bonuses get the big celebration.
         if (data.rewards.leveledUp || data.rewards.badges.length || data.rewards.messages.length) setAward(data.rewards);
       }
+      if (data.problem.canDiagnose && !data.problem.feedbackStatus) diagnose(data.problem.id);
       if (body.type === "answer") {
         if (data.correct) setFeedback({ kind: "right", text: `${CHEERS[Math.floor(Math.random() * CHEERS.length)]}${xp ? ` +${xp} XP` : ""}` });
         else if (data.problem.done) setFeedback({ kind: "wrong", text: `Not quite. The answer is ${data.problem.answer}.` });
@@ -53,10 +64,29 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
     }
   }
 
+  /** Asks Math Buddy why the answer was wrong, sending the scratchpad drawing if there is one. */
+  async function diagnose(problemId: string) {
+    setDiagnosing(problemId);
+    try {
+      const form = new FormData();
+      const work = await scratch.current?.toBlob();
+      if (work) form.append("work", work, "work.png");
+      const res = await fetch(`/api/drill/${problemId}/explain`, { method: "POST", body: form });
+      if (!res.ok) return;
+      const data = await res.json() as { status: Problem["feedbackStatus"]; feedback: string | null };
+      setProblems((ps) => ps.map((p) => (p.id === problemId ? { ...p, feedback: data.feedback, feedbackStatus: data.status } : p)));
+    } catch {
+      // The worked explanation is still shown, so a failed diagnosis just goes without.
+    } finally {
+      setDiagnosing((id) => (id === problemId ? null : id));
+    }
+  }
+
   function next() {
     setFeedback(null);
     setAnswer("");
     setMastered(null);
+    setShowWork(false);
     const after = problems.findIndex((p, i) => i > index && !p.done);
     const before = problems.findIndex((p) => !p.done);
     setIndex(after !== -1 ? after : before !== -1 ? before : problems.length);
@@ -97,7 +127,10 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
       </div>
 
       <div className="card">
-        <div className="text-sm font-semibold text-slate-400">Problem {index + 1} of {problems.length} · {problem.skillName}</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-slate-400">
+          <span>Problem {index + 1} of {problems.length} · {problem.skillName}</span>
+          {SOURCE_LABELS[problem.source] && <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-brand-700">{SOURCE_LABELS[problem.source]}</span>}
+        </div>
         <div className="my-6 text-center text-3xl font-extrabold sm:text-4xl">{problem.prompt}</div>
 
         {!problem.done && (
@@ -126,10 +159,25 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
 
         {problem.hint && <p className="mt-4 rounded-xl bg-brand-50 px-4 py-3 text-brand-700">💡 {problem.hint}</p>}
         {problem.done && problem.explanation && <p className="mt-3 text-center text-slate-600">{problem.explanation}</p>}
+        {(diagnosing === problem.id || problem.feedbackStatus === "pending") && !problem.feedback && (
+          <p className="mt-4 animate-pulse rounded-xl bg-slate-50 px-4 py-3 text-center text-slate-500">🔍 Math Buddy is looking at your answer…</p>
+        )}
+        {problem.feedback && (
+          <div className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-violet-900 ring-1 ring-violet-200">
+            <div className="mb-0.5 text-xs font-bold uppercase tracking-wide text-violet-500">Math Buddy noticed</div>
+            {problem.feedback}
+          </div>
+        )}
 
-        <div className="mt-6 flex justify-center gap-3">
+        {/* Kept mounted after the problem ends so the drawing can go along with the diagnosis. */}
+        {showWork && <div className="mt-5"><Scratchpad key={problem.id} ref={scratch} /></div>}
+
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
           {!problem.done && !problem.usedHint && (
             <button onClick={() => send({ type: "hint" })} disabled={busy} className="btn-secondary">💡 Hint</button>
+          )}
+          {!problem.done && !showWork && (
+            <button onClick={() => setShowWork(true)} className="btn-secondary">✏️ Show your work</button>
           )}
           {problem.done && <button onClick={next} className="btn px-8">Next →</button>}
         </div>

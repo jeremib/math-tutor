@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb, schema } from "@/db";
 import { getStudent } from "@/lib/auth";
-import { IMAGE_TYPES, saveUpload, tutorReply, TutorUnavailableError, type ImageType } from "@/lib/tutor";
-
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+import { saveImageField, tutorReply, TutorUnavailableError } from "@/lib/tutor";
 
 /** Starts a homework session from a photo and/or typed problem, and returns the tutor's first message. */
 export async function POST(req: Request) {
@@ -14,18 +12,12 @@ export async function POST(req: Request) {
 
   const form = await req.formData();
   const text = String(form.get("text") ?? "").trim().slice(0, 2000);
-  const image = form.get("image");
-  const hasImage = image instanceof File && image.size > 0;
-  if (!text && !hasImage) return NextResponse.json({ error: "Add a photo or type your problem." }, { status: 400 });
-
-  let imagePath: string | null = null;
-  let imageType: ImageType | null = null;
-  if (hasImage) {
-    if (!IMAGE_TYPES.includes(image.type as ImageType)) return NextResponse.json({ error: "Please use a JPG, PNG, GIF or WebP photo." }, { status: 400 });
-    if (image.size > MAX_IMAGE_BYTES) return NextResponse.json({ error: "That photo is too big (max 5 MB)." }, { status: 400 });
-    imageType = image.type as ImageType;
-    imagePath = saveUpload(Buffer.from(await image.arrayBuffer()), imageType);
-  }
+  const image = await saveImageField(form, "image");
+  if (image && "error" in image) return NextResponse.json({ error: image.error }, { status: 400 });
+  if (!text && !image) return NextResponse.json({ error: "Add a photo or type your problem." }, { status: 400 });
+  const hasImage = !!image;
+  const imagePath = image?.imagePath ?? null;
+  const imageType = image?.imageType ?? null;
 
   const title = text ? text.split("\n")[0].slice(0, 80) : `Photo problem · ${new Date().toLocaleDateString()}`;
   const db = await getDb();

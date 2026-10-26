@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { getDb, schema, type Db } from "@/db";
 import { SKILLS_BY_ID, seededRandom } from "./curriculum";
 import { checkAnswer } from "./answers";
@@ -7,6 +7,7 @@ import { awardForProblem, type AwardSummary } from "./achievements";
 import {
   chooseDrillSkills, computeStreak, earnedMastery, initialSkills, isMastered, localDate, skillsToUnlock, updateMastery, type SkillState,
 } from "./progress";
+import { RESOLVE_AFTER, mixIntoDrill, practiceSlots } from "./practice";
 
 type Student = typeof schema.students.$inferSelect;
 /** A connection or an open transaction. */
@@ -74,14 +75,31 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
       .onConflictDoNothing().returning();
     if (!drill) return (await tx.select().from(schema.drills).where(where))[0];
 
+    // Practice problems Claude wrote from missed answers and solved homework take some of the slots.
+    const queued = await tx.select().from(schema.practiceProblems)
+      .where(and(eq(schema.practiceProblems.studentId, student.id), isNull(schema.practiceProblems.usedAt)))
+      .orderBy(asc(schema.practiceProblems.createdAt)).limit(30);
+    const practice = queued.slice(0, practiceSlots(skills.length, queued.length));
+
     const rand = seededRandom(Date.now() ^ student.id.charCodeAt(0));
-    await tx.insert(schema.drillProblems).values(skills.map((skillId, position) => {
+    const curriculum = skills.map((skillId) => {
       const p = SKILLS_BY_ID.get(skillId)!.generate(rand);
       return {
-        drillId: drill.id, position, skillId, prompt: p.prompt, answer: p.answer, answerKind: p.answerKind,
+        skillId, prompt: p.prompt, answer: p.answer, answerKind: p.answerKind,
         choices: p.choices ?? null, hint: p.hint, explanation: p.explanation,
       };
+    });
+    const fromPractice = practice.map((q) => ({
+      skillId: q.skillId, prompt: q.prompt, answer: q.answer, answerKind: q.answerKind,
+      choices: null, hint: q.hint, explanation: q.explanation, source: q.source, misconceptionId: q.misconceptionId,
     }));
+    await tx.insert(schema.drillProblems).values(
+      mixIntoDrill(curriculum, fromPractice).map((p, position) => ({ ...p, drillId: drill.id, position })),
+    );
+    if (practice.length) {
+      await tx.update(schema.practiceProblems).set({ usedAt: new Date() })
+        .where(inArray(schema.practiceProblems.id, practice.map((q) => q.id)));
+    }
     return drill;
   });
 }
@@ -105,6 +123,11 @@ export function problemView(p: typeof schema.drillProblems.$inferSelect) {
     hint: p.usedHint || done ? p.hint : null,
     answer: done ? p.answer : null,
     explanation: done ? p.explanation : null,
+    source: p.source,
+    /** A missed problem Claude can explain: finished, with at least one wrong answer. */
+    canDiagnose: done && p.wrongAnswers.length > 0,
+    feedback: p.feedback,
+    feedbackStatus: p.feedbackStatus,
   };
 }
 
@@ -125,6 +148,14 @@ async function recordSkillResult(tx: Tx, studentId: string, skillId: string, cor
   const newlyMastered = !row?.masteredAt && masteredAt !== null;
   if (newlyMastered) await unlockNext(studentId, tx);
   return newlyMastered;
+}
+
+/** A targeted practice problem went right; enough of those clear the misconception. */
+async function recordTargetedPractice(tx: Tx, misconceptionId: string) {
+  await tx.update(schema.misconceptions).set({
+    practicedCorrect: sql`${schema.misconceptions.practicedCorrect} + 1`,
+    resolvedAt: sql`case when ${schema.misconceptions.practicedCorrect} + 1 >= ${RESOLVE_AFTER} then now() else ${schema.misconceptions.resolvedAt} end`,
+  }).where(and(eq(schema.misconceptions.id, misconceptionId), isNull(schema.misconceptions.resolvedAt)));
 }
 
 /** Applies a student's answer or hint request to a drill problem. */
@@ -151,6 +182,7 @@ export async function actOnProblem(studentId: string, timezone: string, problemI
     const finished = correct || tries >= MAX_TRIES;
     const [updated] = await tx.update(schema.drillProblems).set({
       tries, lastAnswer: answer,
+      ...(correct ? {} : { wrongAnswers: [...problem.wrongAnswers, answer] }),
       ...(finished ? {
         solved: correct,
         firstTryCorrect: correct && tries === 1 && !problem.usedHint,
@@ -163,6 +195,9 @@ export async function actOnProblem(studentId: string, timezone: string, problemI
     let rewards: AwardSummary | null = null;
     if (finished) {
       const newlyMastered = await recordSkillResult(tx, studentId, problem.skillId, !!updated.firstTryCorrect);
+      if (problem.source === "misconception" && problem.misconceptionId && updated.firstTryCorrect) {
+        await recordTargetedPractice(tx, problem.misconceptionId);
+      }
       if (newlyMastered) mastered = SKILLS_BY_ID.get(problem.skillId)?.name ?? problem.skillId;
       const all = await drillProblems(drill.id, tx);
       const correctCount = all.filter((p) => p.firstTryCorrect).length;
