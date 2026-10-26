@@ -1,0 +1,68 @@
+/* Landing page only. The page is a sheet of graph paper: the tutor types, the kid writes in pencil. */
+
+.landing {
+  --paper: #fbfdff;
+  --grid: #e1ebf8;
+  --ink: #13264a;
+  --pencil: #3f4a5c;
+  --highlight: #ffe066;
+  --solved: #15803d;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--ink);
+}
+
+.landing .display {
+  font-family: var(--font-display-face), var(--font-sans);
+  letter-spacing: -0.025em;
+}
+
+.landing .hand {
+  font-family: var(--font-hand-face), cursive;
+  color: var(--pencil);
+}
+
+/* Highlighter stroke that sweeps in once on load. */
+.landing .marker {
+  background-image: linear-gradient(100deg, transparent 0.15em, var(--highlight) 0.15em, var(--highlight) calc(100% - 0.1em), transparent calc(100% - 0.1em));
+  background-repeat: no-repeat;
+  background-size: 100% 0.62em;
+  background-position: 0 88%;
+  padding: 0 0.08em;
+  animation: marker-sweep 0.7s 0.35s cubic-bezier(0.3, 0.7, 0.4, 1) backwards;
+}
+
+@keyframes marker-sweep {
+  from { background-size: 0% 0.62em; }
+}
+
+/* Chat demo: messages arrive one by one. With reduced motion they are simply all there. */
+.landing .msg {
+  animation: msg-in 0.45s cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+  animation-delay: calc(0.9s + var(--i) * 0.85s);
+}
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+.landing .photo {
+  background-color: #fff;
+  background-image:
+    linear-gradient(#cfe0f5 1px, transparent 1px),
+    linear-gradient(90deg, #cfe0f5 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.landing .rule-row + .rule-row {
+  border-top: 1.5px dashed #c6d6ec;
+}
+
+.landing a:focus-visible,
+.landing button:focus-visible {
+  outline: 3px solid var(--color-brand-500);
+  outline-offset: 3px;
+}
