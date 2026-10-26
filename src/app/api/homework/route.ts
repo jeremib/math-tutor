@@ -9,7 +9,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export async function POST(req: Request) {
   const session = await getStudent();
   if (!session) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
-  const { student } = session;
+  const { student, family } = session;
   if (!student.homeworkEnabled) return NextResponse.json({ error: "Homework help is turned off." }, { status: 403 });
 
   const form = await req.formData();
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     ? `Here's a photo of my homework problem.${text ? ` ${text}` : ""}`
     : `Here's my homework problem: ${text}`;
   try {
-    await tutorReply(hw, student, opening);
+    await tutorReply(hw, student, family.timezone, opening);
   } catch (error) {
     if (error instanceof TutorUnavailableError) return NextResponse.json({ id: hw.id, warning: error.message });
     throw error;

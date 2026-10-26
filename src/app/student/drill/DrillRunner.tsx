@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { problemView } from "@/lib/learning";
+import type { AwardSummary } from "@/lib/achievements";
+import { Celebration } from "@/components/Celebration";
 
 type Problem = ReturnType<typeof problemView>;
 
@@ -16,6 +18,9 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
   const [feedback, setFeedback] = useState<{ kind: "right" | "wrong" | "retry"; text: string } | null>(null);
   const [mastered, setMastered] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [award, setAward] = useState<AwardSummary | null>(null);
+  const [sessionXp, setSessionXp] = useState(0);
+  const [sessionBadges, setSessionBadges] = useState<AwardSummary["badges"]>([]);
 
   const problem = problems[index];
   const correctCount = useMemo(() => problems.filter((p) => p.done && p.solved && p.tries === 1 && !p.usedHint).length, [problems]);
@@ -25,11 +30,18 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
     try {
       const res = await fetch(`/api/drill/${problem.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error();
-      const data = await res.json() as { problem: Problem; correct: boolean | null; mastered: string | null };
+      const data = await res.json() as { problem: Problem; correct: boolean | null; mastered: string | null; rewards: AwardSummary | null };
       setProblems((ps) => ps.map((p) => (p.id === data.problem.id ? data.problem : p)));
       if (data.mastered) setMastered(data.mastered);
+      const xp = data.rewards?.xp ?? 0;
+      if (data.rewards) {
+        setSessionXp((n) => n + data.rewards!.xp);
+        setSessionBadges((b) => [...b, ...data.rewards!.badges]);
+        // Small wins show inline; level-ups, badges and bonuses get the big celebration.
+        if (data.rewards.leveledUp || data.rewards.badges.length || data.rewards.messages.length) setAward(data.rewards);
+      }
       if (body.type === "answer") {
-        if (data.correct) setFeedback({ kind: "right", text: CHEERS[Math.floor(Math.random() * CHEERS.length)] });
+        if (data.correct) setFeedback({ kind: "right", text: `${CHEERS[Math.floor(Math.random() * CHEERS.length)]}${xp ? ` +${xp} XP` : ""}` });
         else if (data.problem.done) setFeedback({ kind: "wrong", text: `Not quite. The answer is ${data.problem.answer}.` });
         else setFeedback({ kind: "retry", text: "Not quite. Take another look and try again!" });
         if (!data.problem.done) setAnswer("");
@@ -56,6 +68,12 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
         <div className="text-6xl">🏆</div>
         <h1 className="mt-3 text-3xl font-extrabold">All done, {name}!</h1>
         <p className="mt-2 text-lg text-slate-600">You got <b>{correctCount}</b> of {problems.length} right on the first try.</p>
+        {sessionXp > 0 && <p className="mt-3 inline-block rounded-full bg-amber-100 px-4 py-1.5 text-lg font-extrabold text-amber-800">⚡ +{sessionXp} XP</p>}
+        {sessionBadges.length > 0 && (
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {sessionBadges.map((b) => <span key={b.id} className="rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">{b.emoji} {b.name}</span>)}
+          </div>
+        )}
         <ul className="mx-auto mt-6 max-w-md space-y-2 text-left">
           {problems.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
@@ -71,6 +89,7 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
 
   return (
     <div className="space-y-4">
+      <Celebration award={award} />
       <div className="flex items-center gap-1.5">
         {problems.map((p, i) => (
           <div key={p.id} className={`h-2.5 flex-1 rounded-full ${p.done ? (p.solved ? "bg-emerald-500" : "bg-red-400") : i === index ? "bg-brand-500" : "bg-slate-200"}`} />

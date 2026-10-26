@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ChatLog, type ChatMessage } from "@/components/ChatLog";
+import { Celebration } from "@/components/Celebration";
+import type { AwardSummary } from "@/lib/achievements";
 
 export function HomeworkChat({ sessionId, studentName, initialMessages, initialSolved }: {
   sessionId: string;
@@ -15,6 +17,7 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [award, setAward] = useState<AwardSummary | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,6 +43,7 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
       if (!res.ok) throw new Error(data.error);
       setMessages((m) => [...m, { id: `reply-${Date.now()}`, role: "assistant", content: data.reply }]);
       if (data.solved) setSolved(true);
+      if (data.rewards) setAward(data.rewards);
     } catch (err) {
       setMessages((m) => m.slice(0, -1));
       setText(content);
@@ -51,6 +55,7 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
 
   return (
     <div className="space-y-4">
+      <Celebration award={award} />
       <ChatLog messages={messages} studentName={studentName} />
       {busy && <div className="text-slate-400">Math Buddy is thinking…</div>}
       {needsOpening && !busy && <p className="text-slate-600">Tell Math Buddy what the problem is to get started.</p>}

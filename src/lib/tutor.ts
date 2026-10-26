@@ -5,6 +5,7 @@ import path from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { getDb, schema, DATA_DIR } from "@/db";
 import { GRADE_LABELS } from "./curriculum";
+import { awardForHomework } from "./achievements";
 
 const MODEL = "claude-opus-5-5";
 const SOLVED_MARKER = "[[SOLVED]]";
@@ -73,7 +74,7 @@ async function buildMessages(session: HomeworkSession): Promise<Anthropic.Beta.B
 export class TutorUnavailableError extends Error {}
 
 /** Adds the student's message, asks Claude for the next tutoring turn, and stores the reply. */
-export async function tutorReply(session: HomeworkSession, student: { name: string; grade: number }, studentText: string) {
+export async function tutorReply(session: HomeworkSession, student: { id: string; name: string; grade: number }, timezone: string, studentText: string) {
   const db = await getDb();
   await db.insert(schema.homeworkMessages).values({ sessionId: session.id, role: "user", content: studentText });
 
@@ -113,5 +114,6 @@ export async function tutorReply(session: HomeworkSession, student: { name: stri
   await db.update(schema.homeworkSessions)
     .set({ updatedAt: new Date(), ...(solved ? { status: "solved" as const } : {}) })
     .where(eq(schema.homeworkSessions.id, session.id));
-  return { reply, solved };
+  const rewards = solved && session.status !== "solved" ? await awardForHomework(student.id, timezone, session.id) : null;
+  return { reply, solved, rewards };
 }

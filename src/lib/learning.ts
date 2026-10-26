@@ -3,8 +3,9 @@ import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 import { getDb, schema, type Db } from "@/db";
 import { SKILLS_BY_ID, seededRandom } from "./curriculum";
 import { checkAnswer } from "./answers";
+import { awardForProblem, type AwardSummary } from "./achievements";
 import {
-  chooseDrillSkills, computeStreak, initialSkills, isMastered, localDate, skillsToUnlock, updateMastery, type SkillState,
+  chooseDrillSkills, computeStreak, earnedMastery, initialSkills, isMastered, localDate, skillsToUnlock, updateMastery, type SkillState,
 } from "./progress";
 
 type Student = typeof schema.students.$inferSelect;
@@ -127,7 +128,7 @@ async function recordSkillResult(tx: Tx, studentId: string, skillId: string, cor
 }
 
 /** Applies a student's answer or hint request to a drill problem. */
-export async function actOnProblem(studentId: string, problemId: string, action: { type: "answer"; answer: string } | { type: "hint" }) {
+export async function actOnProblem(studentId: string, timezone: string, problemId: string, action: { type: "answer"; answer: string } | { type: "hint" }) {
   const db = await getDb();
   return db.transaction(async (tx) => {
     // Lock the problem so a double-tapped "Check" can't be counted twice.
@@ -136,12 +137,12 @@ export async function actOnProblem(studentId: string, problemId: string, action:
       .where(eq(schema.drillProblems.id, problemId)).for("update");
     if (!found || found.drill.studentId !== studentId) return null;
     const { problem, drill } = found;
-    if (problem.solved !== null) return { problem: problemView(problem), correct: problem.solved, mastered: null, drillDone: drill.completedAt !== null };
+    if (problem.solved !== null) return { problem: problemView(problem), correct: problem.solved, mastered: null, drillDone: drill.completedAt !== null, rewards: null };
 
     if (action.type === "hint") {
       const [updated] = await tx.update(schema.drillProblems).set({ usedHint: true })
         .where(eq(schema.drillProblems.id, problemId)).returning();
-      return { problem: problemView(updated), correct: null, mastered: null, drillDone: false };
+      return { problem: problemView(updated), correct: null, mastered: null, drillDone: false, rewards: null };
     }
 
     const answer = action.answer.slice(0, 50);
@@ -159,17 +160,22 @@ export async function actOnProblem(studentId: string, problemId: string, action:
 
     let mastered: string | null = null;
     let drillDone = false;
+    let rewards: AwardSummary | null = null;
     if (finished) {
-      if (await recordSkillResult(tx, studentId, problem.skillId, !!updated.firstTryCorrect)) {
-        mastered = SKILLS_BY_ID.get(problem.skillId)?.name ?? problem.skillId;
-      }
+      const newlyMastered = await recordSkillResult(tx, studentId, problem.skillId, !!updated.firstTryCorrect);
+      if (newlyMastered) mastered = SKILLS_BY_ID.get(problem.skillId)?.name ?? problem.skillId;
       const all = await drillProblems(drill.id, tx);
       const correctCount = all.filter((p) => p.firstTryCorrect).length;
       drillDone = all.every((p) => p.solved !== null);
       await tx.update(schema.drills).set({ correctCount, ...(drillDone ? { completedAt: new Date() } : {}) })
         .where(eq(schema.drills.id, drill.id));
+      rewards = await awardForProblem(tx, {
+        studentId, timezone, problemId, solved: correct, firstTry: !!updated.firstTryCorrect,
+        masteredSkill: newlyMastered ? problem.skillId : null,
+        drill: { id: drill.id, total: all.length, correctCount, done: drillDone },
+      });
     }
-    return { problem: problemView(updated), correct, mastered, drillDone };
+    return { problem: problemView(updated), correct, mastered, drillDone, rewards };
   });
 }
 
@@ -190,7 +196,7 @@ export async function studentStats(student: Student, timezone: string) {
     doneToday: completed.some((d) => d.date === today),
     accuracy: totalProblems ? Math.round((100 * totalCorrect) / totalProblems) : null,
     recentDrills: completed.slice(0, 14),
-    skillsMastered: rows.filter((r) => r.masteredAt && r.attempts > 0).length,
+    skillsMastered: rows.filter((r) => earnedMastery(r.masteredAt, r.attempts)).length,
     skills: rows
       .map((r) => ({ ...r, skill: SKILLS_BY_ID.get(r.skillId) }))
       .filter((r) => r.skill)

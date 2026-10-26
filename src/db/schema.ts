@@ -33,6 +33,8 @@ export const students = pgTable("students", {
   /** Skill ids the parent wants emphasized. */
   focusSkills: jsonb("focus_skills").$type<string[]>().notNull().default([]),
   homeworkEnabled: boolean("homework_enabled").notNull().default(true),
+  /** Drills per week the student aims for. */
+  weeklyGoal: integer("weekly_goal").notNull().default(5),
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("students_family_username").on(t.familyId, t.username)]);
 
@@ -104,3 +106,33 @@ export const homeworkMessages = pgTable("homework_messages", {
   content: text("content").notNull(),
   createdAt: createdAt(),
 }, (t) => [index("homework_messages_session").on(t.sessionId, t.createdAt)]);
+
+export const xpEvents = pgTable("xp_events", {
+  id: id(),
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  kind: text("kind", {
+    enum: ["check_in", "problem", "drill", "perfect_drill", "mastery", "homework", "weekly_goal"],
+  }).notNull(),
+  amount: integer("amount").notNull(),
+  /** Unique per student, so the same achievement can never pay out twice. */
+  refKey: text("ref_key").notNull(),
+  /** The family's local date when it was earned. */
+  date: text("date").notNull(),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("xp_events_student_ref").on(t.studentId, t.refKey), index("xp_events_student_date").on(t.studentId, t.date)]);
+
+export const studentBadges = pgTable("student_badges", {
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  badgeId: text("badge_id").notNull(),
+  earnedAt: timestamp("earned_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.studentId, t.badgeId] })]);
+
+/** Real-world rewards a parent sets up, unlocked when the student's XP reaches the target. */
+export const rewards = pgTable("rewards", {
+  id: id(),
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  xpTarget: integer("xp_target").notNull(),
+  createdAt: createdAt(),
+  givenAt: timestamp("given_at", { withTimezone: true }),
+}, (t) => [index("rewards_student").on(t.studentId)]);

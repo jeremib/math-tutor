@@ -9,6 +9,7 @@ Family math tutoring: short daily drills that adapt to each child, plus a homewo
 - **Daily drills.** Each day's set is mostly the skills the child is learning now (or the parent's chosen focus skills), plus review of mastered skills. Kids get two tries, an optional hint, and a worked explanation.
 - **Progression.** A skill is mastered after at least 8 attempts with high recent accuracy. Mastering a skill unlocks the next one in the K–8 curriculum (`src/lib/curriculum.ts`), across grade levels too.
 - **Homework helper.** Kids upload a photo or type a problem. Claude tutors them step by step with questions and never gives the final answer. Parents can read every conversation.
+- **Gamification.** Kids earn XP for a daily check-in (more for consecutive days), correct answers, finished and perfect drills, mastered skills, solved homework (up to 3 a day) and hitting their weekly goal. XP raises their level, unlocks new avatars, and earns 18 badges. Parents can set real-world rewards ("Pick Friday's movie at 500 more XP") and mark them as given. Rules live in `src/lib/gamification.ts`; awards in `src/lib/achievements.ts`, recorded once each so refreshing can't earn XP twice.
 - **Parent dashboard.** Shows streaks, first-try accuracy, mastery per skill, recent misses and homework sessions. Parents set drill length, grade, focus skills and PIN, and can turn the homework helper on or off.
 
 ## Running it

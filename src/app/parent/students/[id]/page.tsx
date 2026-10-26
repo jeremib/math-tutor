@@ -5,9 +5,13 @@ import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { GRADE_LABELS, SKILLS, SKILLS_BY_ID } from "@/lib/curriculum";
 import { parseFocus, studentStats } from "@/lib/learning";
+import { gameProfile } from "@/lib/achievements";
+import { levelTitle } from "@/lib/gamification";
+import { earnedMastery } from "@/lib/progress";
+import { WeekTracker } from "@/components/WeekTracker";
 import { ActionForm } from "@/components/ActionForm";
-import { MasteryBar, Stat } from "@/components/ui";
-import { deleteStudent, updateStudent } from "../../actions";
+import { MasteryBar, Stat, XpBar } from "@/components/ui";
+import { addReward, deleteReward, deleteStudent, markRewardGiven, updateStudent } from "../../actions";
 
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,8 +21,9 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
   const db = await getDb();
   const focus = new Set(parseFocus(student));
-  const [stats, homework, misses] = await Promise.all([
+  const [stats, game, homework, misses] = await Promise.all([
     studentStats(student, family.timezone),
+    gameProfile(student, family.timezone),
     db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
     .orderBy(desc(schema.homeworkSessions.updatedAt)).limit(20),
     db.select({ p: schema.drillProblems, date: schema.drills.date })
@@ -48,6 +53,65 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
         <Stat label="Skills mastered" value={stats.skillsMastered} />
       </div>
 
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="card">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xl font-bold">Level {game.level} <span className="text-base font-semibold text-slate-500">· {levelTitle(game.level)}</span></h2>
+            <span className="text-sm font-semibold text-amber-700">{game.xp} XP · {game.xpThisWeek} this week</span>
+          </div>
+          <div className="mt-2"><XpBar into={game.intoLevel} size={game.levelSize} /></div>
+          <h3 className="mt-5 mb-2 font-bold">This week · {game.weeklyDone}/{game.weeklyGoal} drills</h3>
+          <WeekTracker week={game.week} />
+          <h3 className="mt-5 mb-2 font-bold">Badges ({game.badges.length})</h3>
+          {game.badges.length ? (
+            <div className="flex flex-wrap gap-2">
+              {game.badges.map((b) => (
+                <span key={b.id} title={`${b.description} · ${b.earnedAt.toLocaleDateString()}`} className="rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">{b.emoji} {b.name}</span>
+              ))}
+            </div>
+          ) : <p className="text-sm text-slate-500">No badges yet. The first one comes with the first finished drill.</p>}
+        </section>
+
+        <section className="card">
+          <h2 className="text-xl font-bold">🎁 Rewards</h2>
+          <p className="mb-4 text-sm text-slate-500">Set a real-world reward {student.name} can earn with XP. A typical day of practice earns about 80–120 XP.</p>
+          {game.rewards.length > 0 && (
+            <ul className="mb-4 space-y-3">
+              {game.rewards.map((r) => (
+                <li key={r.id} className="rounded-xl bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">{r.title}</span>
+                    <span className={`text-sm font-semibold ${r.givenAt ? "text-slate-400" : r.unlocked ? "text-emerald-600" : "text-slate-500"}`}>
+                      {r.givenAt ? `Given ${r.givenAt.toLocaleDateString()}` : r.unlocked ? "Earned! 🎉" : `${r.xpTarget - game.xp} XP to go`}
+                    </span>
+                  </div>
+                  {!r.unlocked && <div className="mt-2"><XpBar into={game.xp} size={r.xpTarget} /></div>}
+                  <div className="mt-2 flex gap-3 text-sm">
+                    {r.unlocked && !r.givenAt && (
+                      <form action={markRewardGiven}><input type="hidden" name="rewardId" value={r.id} /><button className="font-semibold text-emerald-700 hover:underline">Mark as given</button></form>
+                    )}
+                    <form action={deleteReward}><input type="hidden" name="rewardId" value={r.id} /><button className="font-semibold text-slate-500 hover:underline">Remove</button></form>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <ActionForm action={addReward} submit="Add reward" resetOnSuccess successText="Reward added!">
+            <input type="hidden" name="studentId" value={student.id} />
+            <div className="grid grid-cols-[1fr_8rem] gap-2">
+              <div>
+                <label className="label" htmlFor="rewardTitle">Reward</label>
+                <input id="rewardTitle" name="title" className="input" placeholder="Pick Friday's movie" required />
+              </div>
+              <div>
+                <label className="label" htmlFor="xpNeeded">XP from now</label>
+                <input id="xpNeeded" name="xpNeeded" type="number" min={10} step={10} defaultValue={500} className="input" required />
+              </div>
+            </div>
+          </ActionForm>
+        </section>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="card lg:col-span-3">
           <h2 className="text-xl font-bold">Skills</h2>
@@ -59,7 +123,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                 {skills.map((s) => (
                   <li key={s.skillId} className="grid grid-cols-[1fr_8rem] items-center gap-3">
                     <div>
-                      <div className="font-semibold">{s.skill!.name} {s.masteredAt && s.attempts > 0 ? "⭐" : ""}</div>
+                      <div className="font-semibold">{s.skill!.name} {earnedMastery(s.masteredAt, s.attempts) ? "⭐" : ""}</div>
                       <div className="text-xs text-slate-500">{s.attempts ? `${s.correct}/${s.attempts} first-try correct` : s.masteredAt ? "Assumed from earlier grade" : "Not practiced yet"}</div>
                     </div>
                     <MasteryBar value={s.mastery} mastered={!!s.masteredAt} />
@@ -121,10 +185,14 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
         <h2 className="mb-4 text-xl font-bold">Settings</h2>
         <ActionForm action={updateStudent} submit="Save settings" successText="Saved!">
           <input type="hidden" name="studentId" value={student.id} />
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-4">
             <div>
               <label className="label" htmlFor="dailyProblems">Problems per daily drill</label>
               <input id="dailyProblems" name="dailyProblems" type="number" min={3} max={30} defaultValue={student.dailyProblems} className="input" />
+            </div>
+            <div>
+              <label className="label" htmlFor="weeklyGoal">Weekly goal (drill days)</label>
+              <input id="weeklyGoal" name="weeklyGoal" type="number" min={1} max={7} defaultValue={student.weeklyGoal} className="input" />
             </div>
             <div>
               <label className="label" htmlFor="grade">Grade</label>

@@ -24,6 +24,14 @@ export function isMastered(mastery: number, attempts: number): boolean {
   return attempts >= MIN_ATTEMPTS_FOR_MASTERY && mastery >= MASTERY_THRESHOLD;
 }
 
+/**
+ * Mastered through practice, not just assumed from an earlier grade.
+ * This is what counts toward skill totals and badges.
+ */
+export function earnedMastery(masteredAt: Date | null, attempts: number): boolean {
+  return masteredAt !== null && attempts >= MIN_ATTEMPTS_FOR_MASTERY;
+}
+
 const order = (id: string) => SKILLS.findIndex((s) => s.id === id);
 
 /** Skills a brand-new student starts with: earlier grades as review, plus the first skills of their grade. */

@@ -4,11 +4,13 @@ import { getDb, schema } from "@/db";
 import { requireParent } from "@/lib/auth";
 import { GRADE_LABELS } from "@/lib/curriculum";
 import { studentStats } from "@/lib/learning";
+import { gameProfile } from "@/lib/achievements";
+import { STARTER_AVATARS } from "@/lib/gamification";
 import { ActionForm } from "@/components/ActionForm";
 import { Stat } from "@/components/ui";
 import { addCoParent, addStudent } from "./actions";
 
-const AVATARS = ["🦊", "🐼", "🐯", "🐸", "🦄", "🐙", "🦖", "🐧", "🦉", "🐝"];
+const AVATARS = STARTER_AVATARS;
 
 export default async function ParentDashboard() {
   const { family } = await requireParent();
@@ -17,7 +19,10 @@ export default async function ParentDashboard() {
     db.select().from(schema.students).where(eq(schema.students.familyId, family.id)).orderBy(schema.students.createdAt),
     db.select().from(schema.parents).where(eq(schema.parents.familyId, family.id)).orderBy(schema.parents.createdAt),
   ]);
-  const allStats = await Promise.all(students.map((s) => studentStats(s, family.timezone)));
+  const [allStats, allGames] = await Promise.all([
+    Promise.all(students.map((s) => studentStats(s, family.timezone))),
+    Promise.all(students.map((s) => gameProfile(s, family.timezone))),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -37,6 +42,7 @@ export default async function ParentDashboard() {
         <div className="grid gap-4 sm:grid-cols-2">
           {students.map((s, i) => {
             const stats = allStats[i];
+            const game = allGames[i];
             return (
               <Link key={s.id} href={`/parent/students/${s.id}`} className="card block transition hover:ring-brand-500">
                 <div className="flex items-center gap-3">
@@ -44,6 +50,7 @@ export default async function ParentDashboard() {
                   <div className="flex-1">
                     <div className="text-lg font-bold">{s.name}</div>
                     <div className="text-sm text-slate-500">{GRADE_LABELS[s.grade]} · @{s.username}</div>
+                    <div className="text-sm font-semibold text-amber-700">Level {game.level} · {game.xp} XP · {game.badges.length} badges</div>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-bold ${stats.doneToday ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
                     {stats.doneToday ? "Done today ✓" : "Drill not done"}
@@ -52,7 +59,7 @@ export default async function ParentDashboard() {
                 <div className="mt-4 grid grid-cols-3 gap-2">
                   <Stat label="Streak" value={`${stats.streak}🔥`} />
                   <Stat label="Accuracy" value={stats.accuracy === null ? "–" : `${stats.accuracy}%`} />
-                  <Stat label="Mastered" value={stats.skillsMastered} />
+                  <Stat label="This week" value={`${game.weeklyDone}/${game.weeklyGoal}`} />
                 </div>
               </Link>
             );

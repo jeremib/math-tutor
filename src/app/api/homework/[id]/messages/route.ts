@@ -24,8 +24,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   try {
-    const { reply, solved } = await tutorReply(session, auth.student, parsed.data.text);
-    return NextResponse.json({ reply, solved });
+    const { reply, solved, rewards } = await tutorReply(session, auth.student, auth.family.timezone, parsed.data.text);
+    return NextResponse.json({ reply, solved, rewards });
   } catch (error) {
     if (error instanceof TutorUnavailableError) return NextResponse.json({ error: error.message }, { status: 503 });
     throw error;
