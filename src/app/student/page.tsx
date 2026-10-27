@@ -5,10 +5,19 @@ import { gameProfile } from "@/lib/achievements";
 import { levelTitle } from "@/lib/gamification";
 import { MasteryBar, Stat, XpBar } from "@/components/ui";
 import { WeekTracker } from "@/components/WeekTracker";
+import { localDate } from "@/lib/progress";
+import { pendingTeachBacks } from "@/lib/teachback";
+import { testPrepsFor } from "@/lib/testprep";
 
 export default async function StudentHome() {
   const { student, family } = await requireStudent();
-  const [stats, game] = await Promise.all([studentStats(student, family.timezone), gameProfile(student, family.timezone)]);
+  const [stats, game, teachBacks, preps] = await Promise.all([
+    studentStats(student, family.timezone),
+    gameProfile(student, family.timezone),
+    student.aiEnabled ? pendingTeachBacks(student.id) : [],
+    student.aiEnabled ? testPrepsFor(student.id, localDate(family.timezone)) : [],
+  ]);
+  const nextQuiz = preps.find((p) => p.upcoming && p.status === "ready");
   const learning = stats.skills.filter((s) => !s.masteredAt);
   const nextReward = game.rewards.find((r) => !r.givenAt);
 
@@ -36,11 +45,40 @@ export default async function StudentHome() {
           <h2 className="mt-2 text-xl font-bold">{stats.doneToday ? "Today's drill is done!" : "Today's drill"}</h2>
           <p className="text-slate-600">{stats.doneToday ? "Great work. Come back tomorrow for a new set." : `${student.dailyProblems} problems · up to ${student.dailyProblems * 10 + 50} XP`}</p>
         </Link>
-        {student.homeworkEnabled && (
+        {student.aiEnabled && (
           <Link href="/student/homework" className="card block transition hover:-translate-y-0.5">
             <div className="text-4xl">🧭</div>
             <h2 className="mt-2 text-xl font-bold">Homework help</h2>
             <p className="text-slate-600">Stuck on a problem? Snap a photo and we&apos;ll work through it together. +30 XP when you solve it!</p>
+          </Link>
+        )}
+      </div>
+
+      {teachBacks.length > 0 && (
+        <section className="card ring-2 ring-violet-200">
+          <h2 className="text-xl font-bold">🗣️ Teach it back</h2>
+          <p className="mb-3 text-slate-600">Explain it in your own words to lock it in. +15 XP each!</p>
+          <ul className="space-y-2">
+            {teachBacks.map((t) => (
+              <li key={t.id}>
+                <Link href={`/student/explain/${t.source}/${t.id}`} className="block rounded-xl bg-violet-50 px-4 py-3 font-semibold text-violet-900 hover:bg-violet-100">{t.question} →</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/student/race" className="card block transition hover:-translate-y-0.5">
+          <div className="text-4xl">🏎️</div>
+          <h2 className="mt-2 text-xl font-bold">Fact race</h2>
+          <p className="text-slate-600">How many facts can you get in 60 seconds? Beat your best!</p>
+        </Link>
+        {student.aiEnabled && (
+          <Link href="/student/quiz" className="card block transition hover:-translate-y-0.5">
+            <div className="text-4xl">📝</div>
+            <h2 className="mt-2 text-xl font-bold">{nextQuiz ? `${nextQuiz.title || "Quiz"} ${nextQuiz.daysLeft === 0 ? "is today!" : nextQuiz.daysLeft === 1 ? "is tomorrow" : `in ${nextQuiz.daysLeft} days`}` : "Quiz prep"}</h2>
+            <p className="text-slate-600">{nextQuiz ? `${nextQuiz.answered} of ${nextQuiz.total} practice problems done.` : "Got a quiz coming up? Snap the study guide and get ready."}</p>
           </Link>
         )}
       </div>

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { getParent, getStudent } from "@/lib/auth";
 import { readUpload } from "@/lib/tutor";
 
-/** Finds the student an uploaded file belongs to: a homework photo, a work drawing in a chat, or a drill work drawing. */
+/** Finds the student an uploaded file belongs to: a homework photo, a work drawing, a study guide or a textbook photo. */
 async function owner(file: string): Promise<{ studentId: string; familyId: string; type: string } | null> {
   const db = await getDb();
   const s = schema;
@@ -25,6 +25,15 @@ async function owner(file: string): Promise<{ studentId: string; familyId: strin
     .where(eq(s.drillProblems.workImagePath, file));
   // Saved names end in the image subtype, e.g. ".png".
   if (drill) return { ...drill, type: `image/${file.split(".").pop()}` };
+  const [prep] = await db.select({ studentId: s.students.id, familyId: s.students.familyId, type: s.testPreps.imageType })
+    .from(s.testPreps).innerJoin(s.students, eq(s.students.id, s.testPreps.studentId))
+    .where(eq(s.testPreps.imagePath, file));
+  if (prep) return { ...prep, type: prep.type ?? "application/octet-stream" };
+  const [book] = await db.select({ studentId: s.students.id, familyId: s.students.familyId, images: s.textbooks.images })
+    .from(s.textbooks).innerJoin(s.students, eq(s.students.id, s.textbooks.studentId))
+    .where(sql`${s.textbooks.images} @> ${JSON.stringify([{ path: file }])}::jsonb`);
+  const image = book?.images.find((i) => i.path === file);
+  if (book && image) return { studentId: book.studentId, familyId: book.familyId, type: image.type };
   return null;
 }
 

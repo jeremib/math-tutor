@@ -1,8 +1,8 @@
 import "server-only";
-import { and, asc, count, desc, eq, gte, isNotNull, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, max, sql, sum } from "drizzle-orm";
 import { getDb, schema, type Db } from "@/db";
 import {
-  BADGES_BY_ID, HOMEWORK_XP_PER_DAY, XP, checkInXp, levelInfo, longestStreak, newBadges, streakEndingOn, weekDates, weekStart,
+  BADGES_BY_ID, HOMEWORK_XP_PER_DAY, RACE_XP_CAP, RACES_WITH_XP_PER_DAY, XP, checkInXp, levelInfo, longestStreak, newBadges, streakEndingOn, weekDates, weekStart,
   type BadgeStats,
 } from "./gamification";
 import { MIN_ATTEMPTS_FOR_MASTERY, localDate } from "./progress";
@@ -36,7 +36,7 @@ async function awardXp(tx: Tx, studentId: string, kind: XpKind, refKey: string, 
 
 async function badgeStats(tx: Tx, studentId: string, xp: number): Promise<BadgeStats> {
   const s = schema;
-  const [drills, hintFree, correct, mastered, homework, weekly, drillDates, checkIns] = await Promise.all([
+  const [drills, hintFree, correct, mastered, homework, weekly, drillDates, checkIns, races] = await Promise.all([
     tx.select({
       completed: count(),
       perfect: sql<number>`count(*) filter (where ${s.drills.correctCount} = ${s.drills.total})`.mapWith(Number),
@@ -54,6 +54,7 @@ async function badgeStats(tx: Tx, studentId: string, xp: number): Promise<BadgeS
     tx.select({ n: count() }).from(s.xpEvents).where(and(eq(s.xpEvents.studentId, studentId), eq(s.xpEvents.kind, "weekly_goal"))),
     tx.select({ date: s.drills.date }).from(s.drills).where(and(eq(s.drills.studentId, studentId), isNotNull(s.drills.completedAt))),
     tx.select({ date: s.xpEvents.date }).from(s.xpEvents).where(and(eq(s.xpEvents.studentId, studentId), eq(s.xpEvents.kind, "check_in"))),
+    tx.select({ best: max(s.factRaces.correct) }).from(s.factRaces).where(and(eq(s.factRaces.studentId, studentId), isNotNull(s.factRaces.finishedAt))),
   ]);
   return {
     drillsCompleted: drills[0].completed,
@@ -66,6 +67,7 @@ async function badgeStats(tx: Tx, studentId: string, xp: number): Promise<BadgeS
     homeworkSolved: homework[0].n,
     weeklyGoalsMet: weekly[0].n,
     level: levelInfo(xp).level,
+    bestRace: races[0]?.best ?? 0,
   };
 }
 
@@ -146,6 +148,36 @@ export async function awardForHomework(studentId: string, timezone: string, sess
     if (today.n < HOMEWORK_XP_PER_DAY) {
       gained = await awardXp(tx, studentId, "homework", `homework:${sessionId}`, XP.homeworkSolved, date);
       if (gained) messages.push(`Homework solved +${gained} XP`);
+    }
+    return summarize(tx, studentId, before, gained, messages);
+  });
+}
+
+/** Awards XP the first time a student explains an idea back well enough. */
+export async function awardForExplanation(studentId: string, timezone: string, refKey: string): Promise<AwardSummary> {
+  const db = await getDb();
+  const date = localDate(timezone);
+  return db.transaction(async (tx) => {
+    const before = await totalXp(tx, studentId);
+    const gained = await awardXp(tx, studentId, "explain", `explain:${refKey}`, XP.explained, date);
+    return summarize(tx, studentId, before, gained, gained ? [`Great explaining! +${gained} XP`] : []);
+  });
+}
+
+/** Awards XP for a finished fact race, capped per race and per day. */
+export async function awardForRace(studentId: string, timezone: string, raceId: string, correct: number): Promise<AwardSummary> {
+  const db = await getDb();
+  const date = localDate(timezone);
+  return db.transaction(async (tx) => {
+    const before = await totalXp(tx, studentId);
+    const [today] = await tx.select({ n: count() }).from(schema.xpEvents).where(and(
+      eq(schema.xpEvents.studentId, studentId), eq(schema.xpEvents.kind, "race"), eq(schema.xpEvents.date, date),
+    ));
+    const messages: string[] = [];
+    let gained = 0;
+    if (today.n < RACES_WITH_XP_PER_DAY) {
+      gained = await awardXp(tx, studentId, "race", `race:${raceId}`, Math.min(RACE_XP_CAP, correct * XP.raceCorrect), date);
+      if (gained) messages.push(`Race finished +${gained} XP`);
     }
     return summarize(tx, studentId, before, gained, messages);
   });

@@ -6,6 +6,7 @@ import { familyStudent, requireParent } from "@/lib/auth";
 import { sessionMessages } from "@/lib/tutor";
 import { ChatLog } from "@/components/ChatLog";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
+import { latestExplanations } from "@/lib/teachback";
 
 export default async function HomeworkTranscript({ params }: { params: Promise<{ id: string; sessionId: string }> }) {
   const { id, sessionId } = await params;
@@ -16,6 +17,7 @@ export default async function HomeworkTranscript({ params }: { params: Promise<{
   const [session] = await db.select().from(schema.homeworkSessions)
     .where(and(eq(schema.homeworkSessions.id, sessionId), eq(schema.homeworkSessions.studentId, student.id)));
   if (!session) notFound();
+  const explanation = (await latestExplanations(student.id, [session.id])).get(session.id);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -31,6 +33,13 @@ export default async function HomeworkTranscript({ params }: { params: Promise<{
         <img src={`/api/uploads/${session.imagePath}`} alt="Homework problem" className="max-h-96 rounded-xl ring-1 ring-slate-200" />
       )}
       <ChatLog messages={(await sessionMessages(session.id)).map((m) => ({ id: m.id, role: m.role, content: m.content, imageUrl: m.imagePath ? `/api/uploads/${m.imagePath}` : null }))} studentName={student.name} />
+      {explanation && (
+        <section className="rounded-2xl bg-violet-50 p-4 ring-1 ring-violet-200">
+          <h2 className="font-bold text-violet-900">🗣️ {student.name} explained it back</h2>
+          <p className="mt-1 italic text-slate-700">&ldquo;{explanation.answer}&rdquo;</p>
+          <p className="mt-2 text-sm text-violet-900">Math Buddy: {explanation.feedback}</p>
+        </section>
+      )}
     </div>
   );
 }

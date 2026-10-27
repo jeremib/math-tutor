@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChatLog, type ChatMessage } from "@/components/ChatLog";
 import { Celebration } from "@/components/Celebration";
 import { Scratchpad, type ScratchpadHandle } from "@/components/Scratchpad";
+import { MicButton, useReadAloud } from "@/components/Voice";
 import type { AwardSummary } from "@/lib/achievements";
 
 export function HomeworkChat({ sessionId, studentName, initialMessages, initialSolved }: {
@@ -27,6 +28,10 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
+
+  // Voice mode reads each new tutor reply aloud.
+  const lastReply = messages.at(-1)?.role === "assistant" ? messages.at(-1)!.content : null;
+  useReadAloud(lastReply);
 
   // The first tutor turn may have failed (e.g. no API key yet); let the student retry it.
   const needsOpening = messages.length === 0;
@@ -75,7 +80,10 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
           <div className="text-3xl">🎉</div>
           <div className="font-bold text-emerald-700">You solved it yourself!</div>
           <p className="text-sm text-emerald-700">Watch for a few problems like this one in your next drill.</p>
-          <Link href="/student/homework" className="btn mt-3">Next problem</Link>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            <Link href={`/student/explain/homework/${sessionId}`} className="btn-secondary">🗣️ Teach it back (+15 XP)</Link>
+            <Link href="/student/homework" className="btn">Next problem</Link>
+          </div>
         </div>
       )}
       {error && <p className="error">{error}</p>}
@@ -87,6 +95,7 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
             className={`shrink-0 rounded-xl px-3 font-semibold ring-1 ${showWork ? "bg-brand-50 text-brand-700 ring-brand-200" : "text-slate-600 ring-slate-300 hover:bg-slate-50"}`}
             aria-pressed={showWork} title="Draw your work so Math Buddy can check each step"
           >✏️<span className="sr-only sm:not-sr-only sm:ml-1">Show work</span></button>
+          <MicButton onText={(said) => setText((t) => (t ? `${t} ${said}` : said))} />
           <input value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} className="input border-0 focus:ring-0" placeholder={solved ? "Any other questions?" : showWork ? "Add a note (optional)" : "Type your answer or question…"} aria-label="Message" />
           <button className="btn" disabled={busy || (!text.trim() && !hasDrawing)}>Send</button>
         </div>

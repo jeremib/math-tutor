@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, max } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { GRADE_LABELS, SKILLS, SKILLS_BY_ID } from "@/lib/curriculum";
@@ -12,7 +12,14 @@ import { RESOLVE_AFTER } from "@/lib/practice";
 import { WeekTracker } from "@/components/WeekTracker";
 import { ActionForm } from "@/components/ActionForm";
 import { MasteryBar, Stat, XpBar } from "@/components/ui";
-import { addReward, deleteReward, deleteStudent, markRewardGiven, updateStudent } from "../../actions";
+import { addReward, deleteReward, deleteStudent, deleteTestPrep, markRewardGiven, updateStudent } from "../../actions";
+import { latestExplanations } from "@/lib/teachback";
+import { testPrepsFor } from "@/lib/testprep";
+import { localDate } from "@/lib/progress";
+import { RACE_OPS } from "@/lib/race";
+import { RefreshWhilePending, TestPrepForm } from "@/components/TestPrep";
+import { TestPrepList } from "@/components/TestPrepList";
+import { textbookFor } from "@/lib/textbook";
 
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -22,7 +29,8 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
   const db = await getDb();
   const focus = new Set(parseFocus(student));
-  const [stats, game, homework, misses, noticed] = await Promise.all([
+  const today = localDate(family.timezone);
+  const [stats, game, homework, misses, noticed, preps, raceBests, textbook] = await Promise.all([
     studentStats(student, family.timezone),
     gameProfile(student, family.timezone),
     db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
@@ -33,7 +41,13 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
     .orderBy(desc(schema.drillProblems.answeredAt)).limit(8),
     db.select().from(schema.misconceptions).where(eq(schema.misconceptions.studentId, student.id))
     .orderBy(desc(schema.misconceptions.lastSeenAt)).limit(20),
+    testPrepsFor(student.id, today),
+    db.select({ op: schema.factRaces.op, best: max(schema.factRaces.correct) }).from(schema.factRaces)
+      .where(and(eq(schema.factRaces.studentId, student.id), isNotNull(schema.factRaces.finishedAt))).groupBy(schema.factRaces.op),
+    textbookFor(student.id),
   ]);
+  const chapter = textbook?.status === "ready" && textbook.currentChapter !== null ? textbook.chapters[textbook.currentChapter] : null;
+  const explained = await latestExplanations(student.id, [...noticed.map((m) => m.id), ...homework.map((h) => h.id)]);
   const openMisconceptions = noticed.filter((m) => !m.resolvedAt);
   const fixedMisconceptions = noticed.filter((m) => m.resolvedAt).slice(0, 5);
   const labels = new Map(noticed.map((m) => [m.id, m.label]));
@@ -139,11 +153,58 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               <li key={m.id} className="rounded-xl bg-slate-50 p-3">
                 <div className="font-semibold text-slate-500 line-through decoration-slate-300">{m.label}</div>
                 <div className="mt-0.5 text-sm font-semibold text-emerald-700">✓ Fixed {m.resolvedAt!.toLocaleDateString()}</div>
+                {explained.has(m.id) && <Explained e={explained.get(m.id)!} />}
               </li>
             ))}
           </ul>
         ) : <p className="text-sm text-slate-500">Nothing yet. Patterns show up here after a few missed drill problems.</p>}
       </section>
+
+      <section className="card flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl font-bold">📖 Textbook</h2>
+          <p className="text-sm text-slate-500">
+            {!textbook ? `Add the math book ${student.name} uses at school and drills will follow its chapters.`
+              : textbook.status === "pending" ? `Looking up ${textbook.title || "the book"}…`
+              : textbook.status !== "ready" ? `${textbook.title || "The book"}: needs photos of the table of contents.`
+              : chapter ? <>{textbook.title} · working on <b className="text-slate-700">{chapter.title}</b></>
+              : `${textbook.title} · pick the chapter the class is on.`}
+          </p>
+        </div>
+        <Link href={`/parent/students/${student.id}/textbook`} className={textbook ? "btn-secondary" : "btn"}>
+          {textbook ? "Open textbook plan" : "Set up textbook"}
+        </Link>
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="card">
+          <h2 className="text-xl font-bold">📝 Quiz prep</h2>
+          <p className="mb-4 text-sm text-slate-500">
+            Add an upcoming quiz with a photo of the study guide. Math Buddy writes practice problems and spreads them through {student.name}&apos;s drills until quiz day.
+          </p>
+          {student.aiEnabled ? (
+            <>
+              {preps.length > 0 && <div className="mb-4"><TestPrepList preps={preps} onDelete={deleteTestPrep} /></div>}
+              <TestPrepForm studentId={student.id} today={today} />
+              <RefreshWhilePending pending={preps.some((p) => p.status === "pending")} />
+            </>
+          ) : <p className="text-sm text-slate-500">Turn on the AI tutor in settings below to use quiz prep.</p>}
+        </section>
+        <section className="card">
+          <h2 className="text-xl font-bold">🏎️ Fact race bests</h2>
+          <p className="mb-4 text-sm text-slate-500">Most right answers in 60 seconds. Quick recall of facts frees up attention for harder problems.</p>
+          {raceBests.length ? (
+            <ul className="grid grid-cols-2 gap-3">
+              {RACE_OPS.filter((o) => raceBests.some((b) => b.op === o.op)).map((o) => (
+                <li key={o.op} className="rounded-xl bg-slate-50 p-3 text-center">
+                  <div className="text-2xl font-extrabold">{raceBests.find((b) => b.op === o.op)!.best}</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{o.name}</div>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-sm text-slate-500">No races yet.</p>}
+        </section>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="card lg:col-span-3">
@@ -208,6 +269,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                     <Link href={`/parent/students/${student.id}/homework/${h.id}`} className="flex justify-between gap-2 rounded-lg p-2 hover:bg-slate-50">
                       <span className="min-w-0">
                         <span className="block truncate font-semibold">{h.title}</span>
+                        {explained.has(h.id) && <span className="block text-xs text-violet-700">🗣️ Explained it back</span>}
                         {SKILLS_BY_ID.has(h.skillId ?? "") && (
                           <span className="block text-xs text-slate-500">
                             {SKILLS_BY_ID.get(h.skillId!)!.name}{h.practiceAdded ? ` · +${h.practiceAdded} practice` : ""}
@@ -248,9 +310,19 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               <input id="newPin" name="newPin" inputMode="numeric" pattern="\d{4,8}" className="input" />
             </div>
           </div>
-          <label className="flex items-center gap-2 font-semibold">
-            <input type="checkbox" name="homeworkEnabled" defaultChecked={student.homeworkEnabled} className="h-4 w-4" />
-            Allow homework helper
+          <label className="flex items-start gap-2">
+            <input type="checkbox" name="aiEnabled" defaultChecked={student.aiEnabled} className="mt-1 h-4 w-4" />
+            <span>
+              <span className="font-semibold">Allow the AI tutor</span>
+              <span className="block text-sm text-slate-500">Homework help, explanations of missed drill problems, explain-it-back and quiz prep. Drills, races and rewards work without it.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input type="checkbox" name="voiceEnabled" defaultChecked={student.voiceEnabled} className="mt-1 h-4 w-4" />
+            <span>
+              <span className="font-semibold">Read aloud and listen</span>
+              <span className="block text-sm text-slate-500">Reads problems and the tutor&apos;s replies aloud and lets {student.name} say answers out loud. Helpful for early readers.</span>
+            </span>
           </label>
           <fieldset>
             <legend className="label">Focus skills (up to 5) — these make up most of each drill, e.g. to match what&apos;s being taught at school right now</legend>
@@ -269,7 +341,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                 </div>
               ))}
             </div>
-            <p className="mt-1 text-xs text-slate-500">Changes apply starting with tomorrow&apos;s drill.</p>
+            <p className="mt-1 text-xs text-slate-500">Changes apply starting with tomorrow&apos;s drill. Picking a textbook chapter sets these for you.</p>
           </fieldset>
         </ActionForm>
         <form action={deleteStudent} className="mt-6 border-t border-slate-100 pt-4">
@@ -277,6 +349,16 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <button className="text-sm font-semibold text-red-600 hover:underline">Remove {student.name} and all their progress</button>
         </form>
       </section>
+    </div>
+  );
+}
+
+const VERDICT_LABELS = { got_it: "Explained it well", partly: "Partly explained it", not_yet: "Still working on explaining it" } as const;
+
+function Explained({ e }: { e: { answer: string; verdict: keyof typeof VERDICT_LABELS } }) {
+  return (
+    <div className="mt-2 rounded-lg bg-white p-2 text-sm ring-1 ring-slate-200">
+      <span className="font-semibold text-violet-800">🗣️ {VERDICT_LABELS[e.verdict]}:</span> <span className="italic text-slate-600">&ldquo;{e.answer}&rdquo;</span>
     </div>
   );
 }

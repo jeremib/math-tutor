@@ -7,7 +7,7 @@ import { NewHomework } from "./NewHomework";
 
 export default async function HomeworkPage() {
   const { student } = await requireStudent();
-  if (!student.homeworkEnabled) redirect("/student");
+  if (!student.aiEnabled) redirect("/student");
   const db = await getDb();
   const sessions = await db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
     .orderBy(desc(schema.homeworkSessions.updatedAt)).limit(20);

@@ -90,3 +90,24 @@ test("streak counts consecutive days", () => {
   assert.equal(computeStreak(["2026-10-22", "2026-10-23"], "2026-10-24"), 2);
   assert.equal(computeStreak(["2026-10-21"], "2026-10-24"), 0);
 });
+
+test("spaces out reviews of mastered skills", async () => {
+  const { scheduleReview, reviewOrder, MAX_REVIEW_INTERVAL_DAYS } = await import("../src/lib/progress.ts");
+  const day = 86_400_000;
+  const now = 1_000 * day;
+  assert.equal(scheduleReview(1, true, now).reviewIntervalDays, 2.5);
+  assert.equal(scheduleReview(4, true, now).reviewIntervalDays, 10);
+  assert.equal(scheduleReview(50, true, now).reviewIntervalDays, MAX_REVIEW_INTERVAL_DAYS);
+  assert.equal(scheduleReview(30, false, now).reviewIntervalDays, 1);
+  assert.equal(scheduleReview(30, false, now).nextReviewAt, now + day);
+
+  const s = (skillId: string, extra: Partial<SkillState>): SkillState =>
+    ({ skillId, mastery: 0.9, attempts: 10, mastered: true, lastPracticedAt: null, ...extra });
+  const order = reviewOrder([
+    s("g1-add-10", { nextReviewAt: now + 3 * day, reviewIntervalDays: 10 }), // not due
+    s("g1-sub-10", { nextReviewAt: null, mastery: 0.8 }), // never scheduled
+    s("g1-add-20", { nextReviewAt: now - 1 * day, reviewIntervalDays: 10 }), // 10% overdue
+    s("g1-sub-20", { nextReviewAt: now - 2 * day, reviewIntervalDays: 2 }), // 100% overdue
+  ], now).map((x) => x.skillId);
+  assert.deepEqual(order, ["g1-sub-20", "g1-add-20", "g1-sub-10", "g1-add-10"]);
+});

@@ -5,7 +5,7 @@ export default async function ParentLayout({ children }: { children: React.React
   const { parent, family } = await requireParent();
   return (
     <>
-      <AppHeader who={`${parent.name} · ${family.name}`} links={[{ href: "/parent", label: "Dashboard" }]} />
+      <AppHeader who={`${parent.name} · ${family.name}`} links={[{ href: "/parent", label: "Dashboard" }, { href: "/parent/reports", label: "Weekly reports" }]} />
       <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
     </>
   );

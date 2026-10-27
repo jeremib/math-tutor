@@ -9,7 +9,7 @@ import { HomeworkChat } from "./HomeworkChat";
 export default async function HomeworkSessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { student } = await requireStudent();
-  if (!student.homeworkEnabled) redirect("/student");
+  if (!student.aiEnabled) redirect("/student");
   const db = await getDb();
   const [session] = await db.select().from(schema.homeworkSessions)
     .where(and(eq(schema.homeworkSessions.id, id), eq(schema.homeworkSessions.studentId, student.id)));

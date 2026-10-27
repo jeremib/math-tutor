@@ -1,4 +1,5 @@
 import type { AnswerKind } from "./answers.ts";
+import type { Visual } from "./visuals.ts";
 
 export type Problem = {
   prompt: string;
@@ -8,6 +9,8 @@ export type Problem = {
   explanation: string;
   /** Choices to show as buttons for "choice" problems. */
   choices?: string[];
+  /** A picture model shown with the hint and the explanation. It must not give the answer away. */
+  visual?: Visual;
 };
 
 export type Skill = {
@@ -37,8 +40,8 @@ function fraction(n: number, d: number): string {
 /** Rounds away float noise, e.g. 0.30000000000000004 -> "0.3". */
 const dec = (x: number) => String(Math.round(x * 1e6) / 1e6);
 
-function numberProblem(prompt: string, answer: number | string, hint: string, explanation: string): Problem {
-  return { prompt, answer: String(answer), answerKind: "number", hint, explanation };
+function numberProblem(prompt: string, answer: number | string, hint: string, explanation: string, visual?: Visual): Problem {
+  return { prompt, answer: String(answer), answerKind: "number", hint, explanation, ...(visual ? { visual } : {}) };
 }
 
 // ---------- skills ----------
@@ -50,7 +53,8 @@ export const SKILLS: Skill[] = [
     description: "Count forward from a number.",
     generate: (r) => {
       const a = int(r, 1, 18);
-      return numberProblem(`What number comes after ${a}?`, a + 1, `Count out loud: ${a}, ...`, `${a} and one more is ${a + 1}.`);
+      return numberProblem(`What number comes after ${a}?`, a + 1, `Count out loud: ${a}, ...`, `${a} and one more is ${a + 1}.`,
+        { type: "numberline", min: Math.max(0, a - 4), max: a + 4, step: 1, points: [{ value: a, label: String(a) }] });
     },
   },
   {
@@ -59,7 +63,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 0, 5);
       const b = int(r, 0, 5 - a);
-      return numberProblem(`${a} + ${b} = ?`, a + b, `Hold up ${a} fingers, then ${b} more. Count them all.`, `${a} + ${b} = ${a + b}`);
+      return numberProblem(`${a} + ${b} = ?`, a + b, `Hold up ${a} fingers, then ${b} more. Count them all.`, `${a} + ${b} = ${a + b}`, { type: "dots", groups: [a, b] });
     },
   },
   // Grade 1
@@ -69,7 +73,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 0, 10);
       const b = int(r, 0, 10 - a);
-      return numberProblem(`${a} + ${b} = ?`, a + b, `Start at the bigger number, ${Math.max(a, b)}, and count up ${Math.min(a, b)}.`, `${a} + ${b} = ${a + b}`);
+      return numberProblem(`${a} + ${b} = ?`, a + b, `Start at the bigger number, ${Math.max(a, b)}, and count up ${Math.min(a, b)}.`, `${a} + ${b} = ${a + b}`, { type: "dots", groups: [a, b] });
     },
   },
   {
@@ -78,7 +82,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 1, 10);
       const b = int(r, 0, a);
-      return numberProblem(`${a} − ${b} = ?`, a - b, `Start at ${a} and count back ${b}.`, `${a} − ${b} = ${a - b}`);
+      return numberProblem(`${a} − ${b} = ?`, a - b, `Start at ${a} and count back ${b}.`, `${a} − ${b} = ${a - b}`, { type: "dots", groups: [a], crossed: b });
     },
   },
   {
@@ -87,7 +91,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 2, 12);
       const b = int(r, 2, 20 - a);
-      return numberProblem(`${a} + ${b} = ?`, a + b, `Try making a 10 first: how much does ${Math.max(a, b)} need to get to 10?`, `${a} + ${b} = ${a + b}`);
+      return numberProblem(`${a} + ${b} = ?`, a + b, `Try making a 10 first: how much does ${Math.max(a, b)} need to get to 10?`, `${a} + ${b} = ${a + b}`, { type: "dots", groups: [a, b] });
     },
   },
   {
@@ -96,7 +100,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 11, 20);
       const b = int(r, 2, a - 1);
-      return numberProblem(`${a} − ${b} = ?`, a - b, `Think addition: ${b} + ? = ${a}`, `${a} − ${b} = ${a - b}`);
+      return numberProblem(`${a} − ${b} = ?`, a - b, `Think addition: ${b} + ? = ${a}`, `${a} − ${b} = ${a - b}`, { type: "dots", groups: [a], crossed: b });
     },
   },
   {
@@ -111,6 +115,7 @@ export const SKILLS: Skill[] = [
         answer, answerKind: "choice", choices: ["<", "=", ">"],
         hint: "Compare the tens digits first. The open side of < or > faces the bigger number.",
         explanation: `${a} ${answer} ${b}`,
+        visual: { type: "numberline", min: 0, max: 100, step: 10, points: [{ value: a, label: String(a) }, { value: b, label: String(b) }] },
       };
     },
   },
@@ -122,7 +127,7 @@ export const SKILLS: Skill[] = [
       const n = int(r, 100, 999);
       const place = pick(r, ["hundreds", "tens", "ones"] as const);
       const digit = place === "hundreds" ? Math.floor(n / 100) : place === "tens" ? Math.floor(n / 10) % 10 : n % 10;
-      return numberProblem(`What digit is in the ${place} place of ${n}?`, digit, "From the right: ones, then tens, then hundreds.", `In ${n}, the ${place} digit is ${digit}.`);
+      return numberProblem(`What digit is in the ${place} place of ${n}?`, digit, "From the right: ones, then tens, then hundreds.", `In ${n}, the ${place} digit is ${digit}.`, { type: "blocks", values: [n] });
     },
   },
   {
@@ -131,7 +136,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 12, 79);
       const b = int(r, 11, 99 - a);
-      return numberProblem(`${a} + ${b} = ?`, a + b, "Add the ones first. If you get 10 or more, carry a ten.", `${a} + ${b} = ${a + b}`);
+      return numberProblem(`${a} + ${b} = ?`, a + b, "Add the ones first. If you get 10 or more, carry a ten.", `${a} + ${b} = ${a + b}`, { type: "blocks", values: [a, b] });
     },
   },
   {
@@ -140,7 +145,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 30, 99);
       const b = int(r, 11, a - 1);
-      return numberProblem(`${a} − ${b} = ?`, a - b, "Subtract the ones first. If the top digit is smaller, borrow a ten.", `${a} − ${b} = ${a - b}`);
+      return numberProblem(`${a} − ${b} = ?`, a - b, "Subtract the ones first. If the top digit is smaller, borrow a ten.", `${a} − ${b} = ${a - b}`, { type: "blocks", values: [a] });
     },
   },
   {
@@ -150,7 +155,8 @@ export const SKILLS: Skill[] = [
       const step = pick(r, [2, 5, 10, 100]);
       const start = step * int(r, 0, 9);
       const seq = [0, 1, 2, 3].map((i) => start + i * step);
-      return numberProblem(`What comes next? ${seq.join(", ")}, ...`, start + 4 * step, "How much does the number grow each time?", `Counting by ${step}s: next is ${start + 4 * step}.`);
+      return numberProblem(`What comes next? ${seq.join(", ")}, ...`, start + 4 * step, "How much does the number grow each time?", `Counting by ${step}s: next is ${start + 4 * step}.`,
+        { type: "numberline", min: start, max: start + 5 * step, step, points: seq.map((v) => ({ value: v, label: String(v) })) });
     },
   },
   // Grade 3
@@ -174,7 +180,8 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 2, 10);
       const b = int(r, 0, 10);
-      return numberProblem(`${a} × ${b} = ?`, a * b, `${a} × ${b} means ${b} groups of ${a}. Skip count by ${a}.`, `${a} × ${b} = ${a * b}`);
+      return numberProblem(`${a} × ${b} = ?`, a * b, `${a} × ${b} means ${b} groups of ${a}. Skip count by ${a}.`, `${a} × ${b} = ${a * b}`,
+        b > 0 ? { type: "array", rows: b, cols: a } : undefined);
     },
   },
   {
@@ -183,7 +190,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const b = int(r, 2, 10);
       const q = int(r, 1, 10);
-      return numberProblem(`${b * q} ÷ ${b} = ?`, q, `Think: ${b} × ? = ${b * q}`, `${b} × ${q} = ${b * q}, so ${b * q} ÷ ${b} = ${q}.`);
+      return numberProblem(`${b * q} ÷ ${b} = ?`, q, `Think: ${b} × ? = ${b * q}`, `${b} × ${q} = ${b * q}, so ${b * q} ÷ ${b} = ${q}.`, { type: "array", rows: b, cols: q });
     },
   },
   {
@@ -193,7 +200,8 @@ export const SKILLS: Skill[] = [
       const n = int(r, 11, 989);
       const to = pick(r, [10, 100]);
       const ans = Math.round(n / to) * to;
-      return numberProblem(`Round ${n} to the nearest ${to}.`, ans, `Look at the digit to the right of the ${to === 10 ? "tens" : "hundreds"} place. 5 or more rounds up.`, `${n} rounds to ${ans}.`);
+      return numberProblem(`Round ${n} to the nearest ${to}.`, ans, `Look at the digit to the right of the ${to === 10 ? "tens" : "hundreds"} place. 5 or more rounds up.`, `${n} rounds to ${ans}.`,
+        { type: "numberline", min: Math.floor(n / to) * to, max: Math.floor(n / to) * to + to, step: to / 10, points: [{ value: n, label: String(n) }] });
     },
   },
   {
@@ -202,7 +210,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const l = int(r, 2, 12);
       const w = int(r, 2, 10);
-      return numberProblem(`A rectangle is ${l} units long and ${w} units wide. What is its area in square units?`, l * w, "Area = length × width.", `${l} × ${w} = ${l * w} square units.`);
+      return numberProblem(`A rectangle is ${l} units long and ${w} units wide. What is its area in square units?`, l * w, "Area = length × width.", `${l} × ${w} = ${l * w} square units.`, { type: "array", rows: w, cols: l });
     },
   },
   {
@@ -211,7 +219,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const d = int(r, 2, 6);
       const q = int(r, 1, 8);
-      return numberProblem(`What is 1/${d} of ${d * q}?`, q, `Split ${d * q} into ${d} equal groups.`, `${d * q} ÷ ${d} = ${q}`);
+      return numberProblem(`What is 1/${d} of ${d * q}?`, q, `Split ${d * q} into ${d} equal groups.`, `${d * q} ÷ ${d} = ${q}`, { type: "array", rows: d, cols: q });
     },
   },
   // Grade 4
@@ -221,7 +229,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 23, 2500);
       const b = int(r, 3, 9);
-      return numberProblem(`${a} × ${b} = ?`, a * b, "Multiply each place value, starting from the ones, and carry.", `${a} × ${b} = ${a * b}`);
+      return numberProblem(`${a} × ${b} = ?`, a * b, "Multiply each place value, starting from the ones, and carry.", `${a} × ${b} = ${a * b}`, { type: "area", a, b });
     },
   },
   {
@@ -230,7 +238,7 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, 12, 99);
       const b = int(r, 11, 99);
-      return numberProblem(`${a} × ${b} = ?`, a * b, `Break it apart: ${a} × ${Math.floor(b / 10) * 10} + ${a} × ${b % 10}.`, `${a} × ${b} = ${a * b}`);
+      return numberProblem(`${a} × ${b} = ?`, a * b, `Break it apart: ${a} × ${Math.floor(b / 10) * 10} + ${a} × ${b % 10}.`, `${a} × ${b} = ${a * b}`, { type: "area", a, b });
     },
   },
   {
@@ -256,7 +264,8 @@ export const SKILLS: Skill[] = [
       const d = int(r, 2, 9);
       const n = int(r, 1, d - 1);
       const k = int(r, 2, 6);
-      return numberProblem(`${n}/${d} = ?/${d * k}`, n * k, `What did you multiply ${d} by to get ${d * k}? Do the same to the top.`, `${d} × ${k} = ${d * k}, so ${n} × ${k} = ${n * k}.`);
+      return numberProblem(`${n}/${d} = ?/${d * k}`, n * k, `What did you multiply ${d} by to get ${d * k}? Do the same to the top.`, `${d} × ${k} = ${d * k}, so ${n} × ${k} = ${n * k}.`,
+        d * k <= 24 ? { type: "fractions", bars: [{ n, d, label: `${n}/${d}` }, { n: 0, d: d * k, label: `?/${d * k}` }] } : undefined);
     },
   },
   {
@@ -268,9 +277,11 @@ export const SKILLS: Skill[] = [
       const b = int(r, 1, d - 1);
       if (r() < 0.5 && a !== b) {
         const [hi, lo] = a > b ? [a, b] : [b, a];
-        return numberProblem(`${hi}/${d} − ${lo}/${d} = ?`, fraction(hi - lo, d), "When the bottoms match, just subtract the tops.", `${hi}/${d} − ${lo}/${d} = ${hi - lo}/${d}`);
+        return numberProblem(`${hi}/${d} − ${lo}/${d} = ?`, fraction(hi - lo, d), "When the bottoms match, just subtract the tops.", `${hi}/${d} − ${lo}/${d} = ${hi - lo}/${d}`,
+          { type: "fractions", bars: [{ n: hi, d, label: `${hi}/${d}` }, { n: lo, d, label: `${lo}/${d}` }] });
       }
-      return numberProblem(`${a}/${d} + ${b}/${d} = ?`, fraction(a + b, d), "When the bottoms match, just add the tops.", `${a}/${d} + ${b}/${d} = ${a + b}/${d}`);
+      return numberProblem(`${a}/${d} + ${b}/${d} = ?`, fraction(a + b, d), "When the bottoms match, just add the tops.", `${a}/${d} + ${b}/${d} = ${a + b}/${d}`,
+        { type: "fractions", bars: [{ n: a, d, label: `${a}/${d}` }, { n: b, d, label: `${b}/${d}` }] });
     },
   },
   {
@@ -293,7 +304,8 @@ export const SKILLS: Skill[] = [
       const a = int(r, 1, d1 - 1);
       const b = int(r, 1, d2 - 1);
       const L = lcm(d1, d2);
-      return numberProblem(`${a}/${d1} + ${b}/${d2} = ?`, fraction(a * (L / d1) + b * (L / d2), L), `Find a common denominator. Try ${L}.`, `${a}/${d1} + ${b}/${d2} = ${a * (L / d1)}/${L} + ${b * (L / d2)}/${L} = ${fraction(a * (L / d1) + b * (L / d2), L)}`);
+      return numberProblem(`${a}/${d1} + ${b}/${d2} = ?`, fraction(a * (L / d1) + b * (L / d2), L), `Find a common denominator. Try ${L}.`, `${a}/${d1} + ${b}/${d2} = ${a * (L / d1)}/${L} + ${b * (L / d2)}/${L} = ${fraction(a * (L / d1) + b * (L / d2), L)}`,
+        L <= 24 ? { type: "fractions", bars: [{ n: a, d: d1, label: `${a}/${d1}` }, { n: b, d: d2, label: `${b}/${d2}` }, { n: 0, d: L, label: `${L}ths` }] } : undefined);
     },
   },
   {
@@ -372,8 +384,9 @@ export const SKILLS: Skill[] = [
     generate: (r) => {
       const a = int(r, -15, 15), b = int(r, -15, 15);
       const show = (x: number) => (x < 0 ? `(${x})` : String(x));
-      if (r() < 0.5) return numberProblem(`${a} + ${show(b)} = ?`, a + b, "Picture a number line. Adding a negative moves left.", `${a} + ${show(b)} = ${a + b}`);
-      return numberProblem(`${a} − ${show(b)} = ?`, a - b, "Subtracting a number is the same as adding its opposite.", `${a} − ${show(b)} = ${a} + ${show(-b)} = ${a - b}`);
+      const line: Visual = { type: "numberline", min: -30, max: 30, step: 5, points: [{ value: a, label: `start ${a}` }] };
+      if (r() < 0.5) return numberProblem(`${a} + ${show(b)} = ?`, a + b, "Picture a number line. Adding a negative moves left.", `${a} + ${show(b)} = ${a + b}`, line);
+      return numberProblem(`${a} − ${show(b)} = ?`, a - b, "Subtracting a number is the same as adding its opposite.", `${a} − ${show(b)} = ${a} + ${show(-b)} = ${a - b}`, line);
     },
   },
   {

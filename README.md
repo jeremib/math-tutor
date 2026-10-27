@@ -11,6 +11,16 @@ Family math tutoring: short daily drills that adapt to each child, plus a homewo
 - **Homework helper.** Kids upload a photo or type a problem. Claude tutors them step by step with questions and never gives the final answer. Parents can read every conversation.
 - **Mistake diagnosis.** When a child misses a drill problem, Claude works out why from their exact wrong answers (and their drawn work, if any) and explains it to them. Repeated mistakes are recorded as misconceptions (e.g. "adds the tops and the bottoms"), shown to parents, and targeted with practice problems in the next drills. Two targeted problems right on the first try mark one fixed. Logic in `src/lib/coach.ts` and `src/lib/practice.ts`.
 - **Show your work.** A scratchpad in drills and homework chats. Claude reads the drawing step by step and points to the first line that went wrong.
+- **Checked answer keys.** Every problem Claude writes is solved again from scratch by a second, independent call; only problems whose answers match are kept, so a wrong key can't mark a right child wrong.
+- **Picture models.** Fraction bars, number lines, base-ten blocks, arrays, counting dots and area models appear with hints and explanations (`src/lib/visuals.ts`, `src/components/Visual.tsx`). The homework tutor can draw them in chat too.
+- **Voice mode.** Reads problems, hints and tutor replies aloud and accepts spoken answers ("three fourths" becomes 3/4), using the browser's built-in speech. On by default for K–2; parents can switch it per child.
+- **Explain it back.** After fixing a misconception or solving homework, kids explain the idea in their own words (typed or spoken). Claude judges whether they've got it and nudges if not. +15 XP.
+- **Quiz prep.** Photograph a study guide (or type the topics) and pick the quiz date. Claude finds the topics and writes practice problems, which are paced through the daily drills until quiz day (up to half of each drill).
+- **Textbook plans.** A parent enters the title of the math book their child uses at school (and, optionally, a photo of the cover). Claude searches the web for the book's chapter list and matches each chapter to curriculum skills. If the chapters can't be found online, the parent adds photos of the table of contents instead. Picking the chapter the class is on sets the drill focus skills, and for lessons no built-in skill covers, Claude writes checked practice problems that are mixed into drills. Web lookup needs web search enabled for the API key; the photo route works without it.
+- **Fact races.** 60-second races for +, −, × and ÷ facts, with personal bests, XP and a Speedster badge. Scores are re-checked on the server from the race's seed.
+- **Spaced review.** Each mastered skill comes back for review on a growing schedule (about 2.5× longer after each right answer, back to tomorrow after a miss).
+- **Weekly parent report.** Claude writes a short summary of each child's week: wins, things to watch and one activity to try at home. Shown under Weekly reports, and emailed through [Resend](https://resend.com) when `RESEND_API_KEY` and `EMAIL_FROM` are set. Schedule it weekly (e.g. Sunday evening) with `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/cron/weekly-reports`.
+- **One AI switch per child.** Parents can turn off every Claude-powered feature for a child; drills, races and rewards keep working.
 - **Homework becomes practice.** When a homework problem is solved, Claude matches it to a curriculum skill and writes 3 similar problems with different numbers. They're mixed into upcoming drills and count toward that skill's mastery.
 - **Gamification.** Kids earn XP for a daily check-in (more for consecutive days), correct answers, finished and perfect drills, mastered skills, solved homework (up to 3 a day) and hitting their weekly goal. XP raises their level, unlocks new avatars, and earns 18 badges. Parents can set real-world rewards ("Pick Friday's movie at 500 more XP") and mark them as given. Rules live in `src/lib/gamification.ts`; awards in `src/lib/achievements.ts`, recorded once each so refreshing can't earn XP twice.
 - **Parent dashboard.** Shows streaks, first-try accuracy, mastery per skill, recent misses and homework sessions. Parents set drill length, grade, focus skills and PIN, and can turn the homework helper on or off.
@@ -23,7 +33,7 @@ cp .env.example .env.local   # add your ANTHROPIC_API_KEY
 npm run dev                  # http://localhost:3000
 ```
 
-Drills work without an API key; the homework helper, mistake diagnosis and practice problems need one.
+Drills and races work without an API key; the homework helper, mistake diagnosis, practice problems, explain-it-back, quiz prep, textbook plans and AI-written reports need one.
 
 ```bash
 npm test        # curriculum, answer checking and progression logic

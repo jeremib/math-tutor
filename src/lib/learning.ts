@@ -5,9 +5,10 @@ import { SKILLS_BY_ID, seededRandom } from "./curriculum";
 import { checkAnswer } from "./answers";
 import { awardForProblem, type AwardSummary } from "./achievements";
 import {
-  chooseDrillSkills, computeStreak, earnedMastery, initialSkills, isMastered, localDate, skillsToUnlock, updateMastery, type SkillState,
+  chooseDrillSkills, computeStreak, earnedMastery, initialSkills, isMastered, localDate, scheduleReview, skillsToUnlock, updateMastery,
+  type SkillState,
 } from "./progress";
-import { RESOLVE_AFTER, mixIntoDrill, practiceSlots } from "./practice";
+import { RESOLVE_AFTER, choosePractice, mixIntoDrill } from "./practice";
 
 type Student = typeof schema.students.$inferSelect;
 /** A connection or an open transaction. */
@@ -34,6 +35,7 @@ function toStates(rows: Awaited<ReturnType<typeof skillRows>>): SkillState[] {
   return rows.map((r) => ({
     skillId: r.skillId, mastery: r.mastery, attempts: r.attempts,
     mastered: r.masteredAt !== null, lastPracticedAt: r.lastPracticedAt?.getTime() ?? null,
+    nextReviewAt: r.nextReviewAt?.getTime() ?? null, reviewIntervalDays: r.reviewIntervalDays,
   }));
 }
 
@@ -75,23 +77,30 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
       .onConflictDoNothing().returning();
     if (!drill) return (await tx.select().from(schema.drills).where(where))[0];
 
-    // Practice problems Claude wrote from missed answers and solved homework take some of the slots.
-    const queued = await tx.select().from(schema.practiceProblems)
+    // Practice problems Claude wrote (from missed answers, solved homework and quiz prep) take some of the slots.
+    const queued = await tx.select({ p: schema.practiceProblems, quizDate: schema.testPreps.quizDate }).from(schema.practiceProblems)
+      .leftJoin(schema.testPreps, eq(schema.testPreps.id, schema.practiceProblems.testPrepId))
       .where(and(eq(schema.practiceProblems.studentId, student.id), isNull(schema.practiceProblems.usedAt)))
-      .orderBy(asc(schema.practiceProblems.createdAt)).limit(30);
-    const practice = queued.slice(0, practiceSlots(skills.length, queued.length));
+      .orderBy(asc(schema.testPreps.quizDate), asc(schema.practiceProblems.createdAt)).limit(100);
+    // Quiz problems only count until the quiz; nulls (non-quiz practice) sort last above.
+    const quiz = queued.filter((q) => q.quizDate && q.quizDate >= date).map((q) => q.p);
+    const other = queued.filter((q) => !q.p.testPrepId).map((q) => q.p);
+    const daysToQuiz = quiz.length ? Math.round((Date.parse(queued.find((q) => q.quizDate && q.quizDate >= date)!.quizDate!) - Date.parse(date)) / 86_400_000) : 0;
+    const slots = choosePractice(skills.length, quiz.length, daysToQuiz, other.length);
+    const practice = [...quiz.slice(0, slots.quiz), ...other.slice(0, slots.other)];
 
     const rand = seededRandom(Date.now() ^ student.id.charCodeAt(0));
     const curriculum = skills.map((skillId) => {
       const p = SKILLS_BY_ID.get(skillId)!.generate(rand);
       return {
         skillId, prompt: p.prompt, answer: p.answer, answerKind: p.answerKind,
-        choices: p.choices ?? null, hint: p.hint, explanation: p.explanation,
+        choices: p.choices ?? null, hint: p.hint, explanation: p.explanation, visual: p.visual ?? null,
       };
     });
     const fromPractice = practice.map((q) => ({
       skillId: q.skillId, prompt: q.prompt, answer: q.answer, answerKind: q.answerKind,
-      choices: null, hint: q.hint, explanation: q.explanation, source: q.source, misconceptionId: q.misconceptionId,
+      choices: null, hint: q.hint, explanation: q.explanation, visual: null, source: q.source, misconceptionId: q.misconceptionId,
+      testPrepId: q.testPrepId,
     }));
     await tx.insert(schema.drillProblems).values(
       mixIntoDrill(curriculum, fromPractice).map((p, position) => ({ ...p, drillId: drill.id, position })),
@@ -118,11 +127,12 @@ export function problemView(p: typeof schema.drillProblems.$inferSelect) {
   return {
     id: p.id, position: p.position, prompt: p.prompt, answerKind: p.answerKind,
     choices: p.choices,
-    skillName: SKILLS_BY_ID.get(p.skillId)?.name ?? p.skillId,
+    skillName: SKILLS_BY_ID.get(p.skillId)?.name ?? (p.source === "textbook" ? "Textbook practice" : "Quiz prep"),
     tries: p.tries, usedHint: p.usedHint, lastAnswer: p.lastAnswer, done, solved: p.solved,
     hint: p.usedHint || done ? p.hint : null,
     answer: done ? p.answer : null,
     explanation: done ? p.explanation : null,
+    visual: p.usedHint || done ? p.visual : null,
     source: p.source,
     /** A missed problem Claude can explain: finished, with at least one wrong answer. */
     canDiagnose: done && p.wrongAnswers.length > 0,
@@ -139,11 +149,14 @@ async function recordSkillResult(tx: Tx, studentId: string, skillId: string, cor
   const correctTotal = (row?.correct ?? 0) + (correct ? 1 : 0);
   const now = new Date();
   const masteredAt = row?.masteredAt ?? (isMastered(mastery, attempts) ? now : null);
+  // Mastered skills come back for review on a growing schedule; a fresh mastery starts it.
+  const review = masteredAt ? scheduleReview(row?.masteredAt ? row.reviewIntervalDays : 1, correct, now.getTime()) : null;
+  const scheduling = review ? { reviewIntervalDays: review.reviewIntervalDays, nextReviewAt: new Date(review.nextReviewAt) } : {};
   await tx.insert(schema.studentSkills).values({
-    studentId, skillId, mastery, attempts, correct: correctTotal, masteredAt, lastPracticedAt: now,
+    studentId, skillId, mastery, attempts, correct: correctTotal, masteredAt, lastPracticedAt: now, ...scheduling,
   }).onConflictDoUpdate({
     target: [schema.studentSkills.studentId, schema.studentSkills.skillId],
-    set: { mastery, attempts, correct: correctTotal, masteredAt, lastPracticedAt: now },
+    set: { mastery, attempts, correct: correctTotal, masteredAt, lastPracticedAt: now, ...scheduling },
   });
   const newlyMastered = !row?.masteredAt && masteredAt !== null;
   if (newlyMastered) await unlockNext(studentId, tx);
@@ -194,7 +207,10 @@ export async function actOnProblem(studentId: string, timezone: string, problemI
     let drillDone = false;
     let rewards: AwardSummary | null = null;
     if (finished) {
-      const newlyMastered = await recordSkillResult(tx, studentId, problem.skillId, !!updated.firstTryCorrect);
+      // Quiz problems outside the curriculum have no skill to track.
+      const newlyMastered = SKILLS_BY_ID.has(problem.skillId)
+        ? await recordSkillResult(tx, studentId, problem.skillId, !!updated.firstTryCorrect)
+        : false;
       if (problem.source === "misconception" && problem.misconceptionId && updated.firstTryCorrect) {
         await recordTargetedPractice(tx, problem.misconceptionId);
       }

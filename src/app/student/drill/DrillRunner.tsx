@@ -6,6 +6,8 @@ import type { problemView } from "@/lib/learning";
 import type { AwardSummary } from "@/lib/achievements";
 import { Celebration } from "@/components/Celebration";
 import { Scratchpad, type ScratchpadHandle } from "@/components/Scratchpad";
+import { Visual } from "@/components/Visual";
+import { MicButton, SpeakButton, useReadAloud } from "@/components/Voice";
 
 type Problem = ReturnType<typeof problemView>;
 
@@ -15,9 +17,11 @@ const SOURCE_LABELS: Record<Problem["source"], string | null> = {
   curriculum: null,
   misconception: "🎯 Extra practice",
   homework: "📚 Like your homework",
+  test_prep: "📝 Quiz prep",
+  textbook: "📖 From your textbook",
 };
 
-export function DrillRunner({ initialProblems, name }: { initialProblems: Problem[]; name: string }) {
+export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProblems: Problem[]; name: string; aiEnabled: boolean }) {
   const [problems, setProblems] = useState(initialProblems);
   const firstOpen = problems.findIndex((p) => !p.done);
   const [index, setIndex] = useState(firstOpen === -1 ? problems.length : firstOpen);
@@ -33,6 +37,10 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
   const scratch = useRef<ScratchpadHandle>(null);
 
   const problem = problems[index];
+  // Voice mode reads each new problem, and the right/wrong message, aloud.
+  useReadAloud(problem?.prompt);
+  useReadAloud(feedback?.text);
+
   const correctCount = useMemo(() => problems.filter((p) => p.done && p.solved && p.tries === 1 && !p.usedHint).length, [problems]);
 
   async function send(body: { type: "answer"; answer: string } | { type: "hint" }) {
@@ -50,7 +58,7 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
         // Small wins show inline; level-ups, badges and bonuses get the big celebration.
         if (data.rewards.leveledUp || data.rewards.badges.length || data.rewards.messages.length) setAward(data.rewards);
       }
-      if (data.problem.canDiagnose && !data.problem.feedbackStatus) diagnose(data.problem.id);
+      if (aiEnabled && data.problem.canDiagnose && !data.problem.feedbackStatus) diagnose(data.problem.id);
       if (body.type === "answer") {
         if (data.correct) setFeedback({ kind: "right", text: `${CHEERS[Math.floor(Math.random() * CHEERS.length)]}${xp ? ` +${xp} XP` : ""}` });
         else if (data.problem.done) setFeedback({ kind: "wrong", text: `Not quite. The answer is ${data.problem.answer}.` });
@@ -131,7 +139,10 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
           <span>Problem {index + 1} of {problems.length} · {problem.skillName}</span>
           {SOURCE_LABELS[problem.source] && <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-brand-700">{SOURCE_LABELS[problem.source]}</span>}
         </div>
-        <div className="my-6 text-center text-3xl font-extrabold sm:text-4xl">{problem.prompt}</div>
+        <div className="my-6 flex items-center justify-center gap-3">
+          <div className="text-center text-3xl font-extrabold sm:text-4xl">{problem.prompt}</div>
+          <SpeakButton text={problem.prompt} />
+        </div>
 
         {!problem.done && (
           problem.choices ? (
@@ -139,9 +150,11 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
               {problem.choices.map((c) => (
                 <button key={c} disabled={busy} onClick={() => send({ type: "answer", answer: c })} className="btn-secondary h-16 w-20 text-3xl">{c}</button>
               ))}
+              <MicButton asAnswer onText={(said) => { if (problem.choices!.includes(said)) send({ type: "answer", answer: said }); }} />
             </div>
           ) : (
             <form onSubmit={(e) => { e.preventDefault(); if (answer.trim()) send({ type: "answer", answer }); }} className="mx-auto flex max-w-sm gap-2">
+              <MicButton asAnswer onText={(said) => { setAnswer(said); send({ type: "answer", answer: said }); }} />
               <input autoFocus value={answer} onChange={(e) => setAnswer(e.target.value)} className="input text-center text-2xl font-bold" placeholder="Your answer" aria-label="Your answer" />
               <button className="btn px-6 text-lg" disabled={busy || !answer.trim()}>Check</button>
             </form>
@@ -157,14 +170,28 @@ export function DrillRunner({ initialProblems, name }: { initialProblems: Proble
           <div className="mt-3 rounded-xl bg-yellow-50 px-4 py-3 text-center font-bold text-yellow-800">⭐ New skill earned: {mastered}!</div>
         )}
 
-        {problem.hint && <p className="mt-4 rounded-xl bg-brand-50 px-4 py-3 text-brand-700">💡 {problem.hint}</p>}
-        {problem.done && problem.explanation && <p className="mt-3 text-center text-slate-600">{problem.explanation}</p>}
+        {problem.hint && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl bg-brand-50 px-4 py-3 text-brand-700">
+            <p className="flex-1">💡 {problem.hint}</p>
+            <SpeakButton text={problem.hint} />
+          </div>
+        )}
+        {problem.visual && <Visual visual={problem.visual} className="mt-3" />}
+        {problem.done && problem.explanation && (
+          <div className="mt-3 flex items-center justify-center gap-2 text-slate-600">
+            <p className="text-center">{problem.explanation}</p>
+            <SpeakButton text={problem.explanation} />
+          </div>
+        )}
         {(diagnosing === problem.id || problem.feedbackStatus === "pending") && !problem.feedback && (
           <p className="mt-4 animate-pulse rounded-xl bg-slate-50 px-4 py-3 text-center text-slate-500">🔍 Math Buddy is looking at your answer…</p>
         )}
         {problem.feedback && (
           <div className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-violet-900 ring-1 ring-violet-200">
-            <div className="mb-0.5 text-xs font-bold uppercase tracking-wide text-violet-500">Math Buddy noticed</div>
+            <div className="mb-0.5 flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wide text-violet-500">
+              Math Buddy noticed
+              <SpeakButton text={problem.feedback} />
+            </div>
             {problem.feedback}
           </div>
         )}

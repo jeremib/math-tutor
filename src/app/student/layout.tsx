@@ -5,6 +5,7 @@ import { dailyCheckIn, totalXp } from "@/lib/achievements";
 import { Celebration } from "@/components/Celebration";
 import { levelInfo } from "@/lib/gamification";
 import { getDb } from "@/db";
+import { VoiceProvider } from "@/components/Voice";
 
 export default async function StudentLayout({ children }: { children: React.ReactNode }) {
   const { student, family } = await requireStudent();
@@ -12,10 +13,10 @@ export default async function StudentLayout({ children }: { children: React.Reac
   const checkIn = await dailyCheckIn(student.id, family.timezone);
   const { level, xp } = levelInfo(await totalXp(await getDb(), student.id));
   const links = [{ href: "/student", label: "Home" }, { href: "/student/drill", label: "Daily drill" }];
-  if (student.homeworkEnabled) links.push({ href: "/student/homework", label: "Homework help" });
-  links.push({ href: "/student/trophies", label: "Trophies" });
+  if (student.aiEnabled) links.push({ href: "/student/homework", label: "Homework help" }, { href: "/student/quiz", label: "Quiz prep" });
+  links.push({ href: "/student/race", label: "Race" }, { href: "/student/trophies", label: "Trophies" });
   return (
-    <>
+    <VoiceProvider enabled={student.voiceEnabled}>
       <AppHeader
         who={`${student.avatar} ${student.name}`}
         links={links}
@@ -27,6 +28,6 @@ export default async function StudentLayout({ children }: { children: React.Reac
       />
       <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>
       <Celebration award={checkIn} />
-    </>
+    </VoiceProvider>
   );
 }

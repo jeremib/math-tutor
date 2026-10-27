@@ -12,7 +12,15 @@ export const XP = {
   skillMastered: 50,
   homeworkSolved: 30,
   weeklyGoal: 50,
+  /** Explaining an idea back in their own words. */
+  explained: 15,
+  /** Per correct answer in a fact race, up to RACE_XP_CAP per race. */
+  raceCorrect: 1,
 } as const;
+
+/** Race XP is capped per race and per day so racing doesn't crowd out the daily drill. */
+export const RACE_XP_CAP = 25;
+export const RACES_WITH_XP_PER_DAY = 3;
 
 /** Homework XP is capped per day so kids can't farm it with easy problems. */
 export const HOMEWORK_XP_PER_DAY = 3;
@@ -68,6 +76,8 @@ export type BadgeStats = {
   homeworkSolved: number;
   weeklyGoalsMet: number;
   level: number;
+  /** Most right answers in one fact race. */
+  bestRace?: number;
 };
 
 export type Badge = { id: string; emoji: string; name: string; description: string; earned: (s: BadgeStats) => boolean };
@@ -88,6 +98,7 @@ export const BADGES: Badge[] = [
   { id: "skill-10", emoji: "🎓", name: "Scholar", description: "Master 10 skills", earned: (s) => s.skillsMastered >= 10 },
   { id: "homework-1", emoji: "🧭", name: "Problem Solver", description: "Solve a homework problem with Math Buddy", earned: (s) => s.homeworkSolved >= 1 },
   { id: "homework-10", emoji: "🗺️", name: "Pathfinder", description: "Solve 10 homework problems with Math Buddy", earned: (s) => s.homeworkSolved >= 10 },
+  { id: "race-20", emoji: "🏎️", name: "Speedster", description: "Get 20 right in one fact race", earned: (s) => (s.bestRace ?? 0) >= 20 },
   { id: "weekly-goal", emoji: "🎉", name: "Goal Getter", description: "Reach your weekly goal", earned: (s) => s.weeklyGoalsMet >= 1 },
   { id: "level-5", emoji: "🥇", name: "Level 5", description: "Reach level 5", earned: (s) => s.level >= 5 },
   { id: "level-10", emoji: "👑", name: "Level 10", description: "Reach level 10", earned: (s) => s.level >= 10 },
@@ -109,6 +120,14 @@ function shiftDate(date: string, days: number): string {
 export function weekStart(date: string): string {
   const day = new Date(date + "T00:00:00Z").getUTCDay(); // 0 = Sunday
   return shiftDate(date, -((day + 6) % 7));
+}
+
+/**
+ * Monday of the week a report sent on `today` should cover: the week ending today
+ * (when run on Sunday) or the one that just ended (when run on Monday).
+ */
+export function reportWeek(today: string): string {
+  return weekStart(shiftDate(today, -1));
 }
 
 export function weekDates(date: string): string[] {

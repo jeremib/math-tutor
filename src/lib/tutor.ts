@@ -31,6 +31,15 @@ Your job is to help ${name} solve the problem themselves. Learning happens when 
 - Sometimes ${name} sends a drawing of their own work. Read it line by line and find the first step that went wrong, if any. Point to that step ("Look at the line where you subtracted…") and ask a question about it, rather than fixing it. If every step is right, tell them which part they did well and ask for the next step.
 - Keep the conversation on their math homework; gently steer back if it drifts.
 
+You can draw a picture model to help. Put it on its own line as [[VISUAL {json}]], using one of these:
+- {"type":"fractions","bars":[{"n":3,"d":4,"label":"3/4"}]} (fraction bars; n parts of d shaded; n 0 shows empty parts; up to 4 bars, d up to 24)
+- {"type":"numberline","min":0,"max":20,"step":1,"points":[{"value":7,"label":"7"}]} (at most 40 steps)
+- {"type":"dots","groups":[3,4],"crossed":0} (counting dots, groups up to 20; crossed crosses out the last dots)
+- {"type":"blocks","values":[234]} (base-ten blocks, up to 999)
+- {"type":"array","rows":3,"cols":4} (a grid of squares, up to 12 × 12)
+- {"type":"area","a":23,"b":14} (area model splitting a × b by place value)
+Use a picture only when it helps them see the idea, never one that shows the answer.
+
 Write for a ${GRADE_LABELS[grade] ?? "young"} reader: short sentences, friendly tone, no more than about 4 sentences per message. Write math in plain text (like 3/4, 2 × 5, x^2) rather than LaTeX. Encourage effort, not just correct answers.`;
 }
 
@@ -52,6 +61,17 @@ export async function saveImageField(form: FormData, field: string): Promise<{ i
   if (image.size > MAX_IMAGE_BYTES) return { error: "That photo is too big (max 5 MB)." };
   const imageType = image.type as ImageType;
   return { imagePath: saveUpload(Buffer.from(await image.arrayBuffer()), imageType), imageType };
+}
+
+/** Like saveImageField, for a field that can hold several photos. All are checked before any is saved. */
+export async function saveImageFields(form: FormData, field: string, max: number): Promise<{ imagePath: string; imageType: ImageType }[] | { error: string }> {
+  const files = form.getAll(field).filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length > max) return { error: `Add at most ${max} photos.` };
+  if (files.some((f) => !IMAGE_TYPES.includes(f.type as ImageType))) return { error: "Please use JPG, PNG, GIF or WebP photos." };
+  if (files.some((f) => f.size > MAX_IMAGE_BYTES)) return { error: "One of those photos is too big (max 5 MB each)." };
+  return Promise.all(files.map(async (f) => ({
+    imagePath: saveUpload(Buffer.from(await f.arrayBuffer()), f.type as ImageType), imageType: f.type as ImageType,
+  })));
 }
 
 export function readUpload(file: string) {

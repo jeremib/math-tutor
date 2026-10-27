@@ -7,6 +7,7 @@ import { saveImageField } from "@/lib/tutor";
 export async function POST(req: Request, { params }: { params: Promise<{ problemId: string }> }) {
   const session = await getStudent();
   if (!session) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+  if (!session.student.aiEnabled) return NextResponse.json({ status: "none", feedback: null });
 
   const form = await req.formData().catch(() => new FormData());
   const work = await saveImageField(form, "work");

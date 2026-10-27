@@ -34,6 +34,7 @@ export async function addStudent(_: FormState, form: FormData): Promise<FormStat
   const added = await db.transaction(async (tx) => {
     const [student] = await tx.insert(schema.students).values({
       familyId: family.id, name: data.name, username: data.username, grade: data.grade, avatar: data.avatar, pinHash,
+      voiceEnabled: data.grade <= 2,
     }).onConflictDoNothing().returning();
     if (student) await seedStudentSkills(student.id, data.grade, tx);
     return !!student;
@@ -48,7 +49,8 @@ const settingsSchema = z.object({
   dailyProblems: z.coerce.number().int().min(3).max(30),
   weeklyGoal: z.coerce.number().int().min(1).max(7),
   grade,
-  homeworkEnabled: z.literal("on").optional(),
+  aiEnabled: z.literal("on").optional(),
+  voiceEnabled: z.literal("on").optional(),
   newPin: z.union([pin, z.literal("")]).optional(),
 });
 
@@ -66,7 +68,8 @@ export async function updateStudent(_: FormState, form: FormData): Promise<FormS
     dailyProblems: data.dailyProblems,
     weeklyGoal: data.weeklyGoal,
     grade: data.grade,
-    homeworkEnabled: data.homeworkEnabled === "on",
+    aiEnabled: data.aiEnabled === "on",
+    voiceEnabled: data.voiceEnabled === "on",
     focusSkills: focus,
     ...(data.newPin ? { pinHash: await bcrypt.hash(data.newPin, 10) } : {}),
   }).where(eq(schema.students.id, student.id));
@@ -146,4 +149,16 @@ export async function deleteReward(form: FormData) {
   if (!reward) return;
   await (await getDb()).delete(schema.rewards).where(eq(schema.rewards.id, reward.id));
   revalidatePath(`/parent/students/${reward.studentId}`);
+}
+
+export async function deleteTestPrep(form: FormData) {
+  const { family } = await requireParent();
+  const db = await getDb();
+  const [row] = await db.select({ prep: schema.testPreps }).from(schema.testPreps)
+    .innerJoin(schema.students, eq(schema.students.id, schema.testPreps.studentId))
+    .where(and(eq(schema.testPreps.id, String(form.get("prepId"))), eq(schema.students.familyId, family.id)));
+  if (!row) return;
+  // Its unused practice problems go with it (cascade); answered drill problems stay.
+  await db.delete(schema.testPreps).where(eq(schema.testPreps.id, row.prep.id));
+  revalidatePath(`/parent/students/${row.prep.studentId}`);
 }

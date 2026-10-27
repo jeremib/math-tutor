@@ -5,9 +5,9 @@ import { getDb, schema } from "@/db";
 import { GRADE_LABELS, SKILLS, SKILLS_BY_ID } from "./curriculum";
 import { askStructured, imageBlock, type ImageInput } from "./ai";
 import { buildMessages, readUpload, type ImageType } from "./tutor";
-import { MAX_QUEUED_PER_MISCONCEPTION, normalizeTag, validateGenerated, type GeneratedProblem } from "./practice";
+import { MAX_QUEUED_PER_MISCONCEPTION, keepVerified, normalizeTag, validateGenerated, type GeneratedProblem } from "./practice";
 
-const PracticeSchema = z.object({
+export const PracticeSchema = z.object({
   prompt: z.string().describe("The problem, in plain text. Write math like 3/4, 2 × 5, x^2."),
   answer: z.string().describe("A single number, fraction (3/4), mixed number (1 1/2) or decimal. For quotient-and-remainder problems, like 7 R 2."),
   answerKind: z.enum(["number", "remainder"]),
@@ -15,7 +15,7 @@ const PracticeSchema = z.object({
   explanation: z.string().describe("A short worked solution shown after the student answers."),
 });
 
-const PRACTICE_RULES = `Practice problems must:
+export const PRACTICE_RULES = `Practice problems must:
 - be answerable with one number, fraction, mixed number or decimal (answerKind "number"), or a quotient and remainder like 7 R 2 (answerKind "remainder"). No multiple choice, no units in the answer, no answers in words.
 - use different numbers from the original problem.
 - be right for the student's grade, and solvable in a minute or two.
@@ -28,8 +28,39 @@ const DiagnosisSchema = z.object({
   tag: z.string().describe("For a misconception: a short kebab-case name for it, such as adds-denominators or forgets-to-carry. Reuse an existing tag if it's the same mistake. Empty otherwise."),
   parentNote: z.string().describe("For a misconception: one plain sentence for a parent describing what the child is doing. Empty otherwise."),
   kidMessage: z.string().describe("2–3 short, kind sentences to the student about their specific answer: what likely happened and the one idea to remember. Don't scold."),
-  practice: z.array(PracticeSchema).describe("For a misconception: 2 practice problems that target it. Empty otherwise."),
+  practice: z.array(PracticeSchema).describe("For a misconception: 3 practice problems that target it. Empty otherwise."),
+  teachBackQuestion: z.string().describe("For a misconception: one question asking the student to explain the right idea in their own words, for after they've practiced it, e.g. \"Why do the bottom numbers need to match before you add fractions?\" Empty otherwise."),
 });
+
+const SolveSchema = z.object({
+  answers: z.array(z.object({
+    number: z.number().int().describe("The problem's number from the list."),
+    answer: z.string().describe("Just the final answer: a number, fraction, mixed number, decimal, or quotient and remainder like 7 R 2."),
+  })),
+});
+
+/**
+ * Validates problems Claude wrote, then has Claude solve them again from scratch and keeps
+ * only the ones whose answer key matches. A wrong key would mark a right child wrong.
+ */
+export async function checkedPractice<P extends z.infer<typeof PracticeSchema>>(problems: P[]): Promise<(P & GeneratedProblem)[]> {
+  // Extra fields on each problem (like a quiz topic) ride along.
+  const valid = problems.flatMap((p) => {
+    const v = validateGenerated(p);
+    return v ? [{ ...p, ...v }] : [];
+  });
+  if (!valid.length) return [];
+  const result = await askStructured({
+    system: "Solve each math problem carefully. Work it out, then double-check it. Give only the final answer for each, in simplest form.",
+    schema: SolveSchema,
+    effort: "medium",
+    content: [{ type: "text", text: valid.map((p, i) => `${i + 1}. ${p.prompt}${p.answerKind === "remainder" ? " (Give the answer as a quotient and remainder, like 7 R 2.)" : ""}`).join("\n") }],
+  });
+  const byNumber = new Map(result?.answers.map((a) => [a.number, a.answer]));
+  const kept = keepVerified(valid, valid.map((_, i) => byNumber.get(i + 1)));
+  if (kept.length < valid.length) console.warn(`dropped ${valid.length - kept.length} practice problem(s) whose answer key didn't check out`);
+  return kept;
+}
 
 function diagnosisPrompt(grade: number) {
   const level = GRADE_LABELS[grade] ?? `grade ${grade}`;
@@ -104,12 +135,17 @@ async function runDiagnosis(studentId: string, grade: number, problem: DrillProb
   });
 
   const feedback = result?.kidMessage.trim() || null;
+  const isMisconception = result?.kind === "misconception" && !!result.tag.trim() && !!result.parentNote.trim();
+  const checked = isMisconception ? await checkedPractice(result.practice) : [];
   await db.transaction(async (tx) => {
     let misconceptionId: string | null = null;
-    if (result?.kind === "misconception" && result.tag.trim() && result.parentNote.trim()) {
+    if (result && isMisconception) {
       const tag = normalizeTag(result.tag);
       const [row] = await tx.insert(schema.misconceptions)
-        .values({ studentId, skillId: problem.skillId, tag, label: result.parentNote.trim().slice(0, 300) })
+        .values({
+          studentId, skillId: problem.skillId, tag, label: result.parentNote.trim().slice(0, 300),
+          teachBackQuestion: result.teachBackQuestion.trim().slice(0, 300) || null,
+        })
         .onConflictDoUpdate({
           target: [schema.misconceptions.studentId, schema.misconceptions.tag],
           targetWhere: sql`${schema.misconceptions.resolvedAt} is null`,
@@ -121,7 +157,7 @@ async function runDiagnosis(studentId: string, grade: number, problem: DrillProb
       const [{ queued }] = await tx.select({ queued: count() }).from(schema.practiceProblems)
         .where(and(eq(schema.practiceProblems.misconceptionId, row.id), isNull(schema.practiceProblems.usedAt)));
       const room = MAX_QUEUED_PER_MISCONCEPTION - queued;
-      const practice = result.practice.map(validateGenerated).filter((p): p is GeneratedProblem => !!p).slice(0, Math.max(0, room));
+      const practice = checked.slice(0, Math.max(0, room));
       if (practice.length) {
         await tx.insert(schema.practiceProblems).values(practice.map((p) => ({
           ...p, studentId, source: "misconception" as const, misconceptionId: row.id, skillId: problem.skillId,
@@ -138,7 +174,7 @@ const HomeworkPracticeSchema = z.object({
   skillId: z.enum(["none", ...SKILLS.map((s) => s.id)]).describe(
     "The curriculum skill this problem practices most. none if nothing in the list fits.",
   ),
-  problems: z.array(PracticeSchema).describe("3 practice problems like the solved one."),
+  problems: z.array(PracticeSchema).describe("4 practice problems like the solved one."),
 });
 
 const SKILL_LIST = SKILLS.map((s) => `- ${s.id}: ${s.name} (${GRADE_LABELS[s.grade]}). ${s.description}`).join("\n");
@@ -190,7 +226,7 @@ ${PRACTICE_RULES}`,
     await db.update(schema.homeworkSessions).set({ skillId: "none" }).where(eq(schema.homeworkSessions.id, sessionId));
     return;
   }
-  const practice = result.problems.map(validateGenerated).filter((p): p is GeneratedProblem => !!p).slice(0, 3);
+  const practice = (await checkedPractice(result.problems)).slice(0, 3);
   await db.transaction(async (tx) => {
     if (practice.length) {
       await tx.insert(schema.practiceProblems).values(practice.map((p) => ({

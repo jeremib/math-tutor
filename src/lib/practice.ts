@@ -1,5 +1,5 @@
 // Pure rules for practice problems Claude writes: validation, drill mixing and misconception resolution.
-import { parseRational } from "./answers.ts";
+import { checkAnswer, parseRational } from "./answers.ts";
 
 /** Targeted practice problems a student must get right on the first try to clear a misconception. */
 export const RESOLVE_AFTER = 2;
@@ -33,10 +33,36 @@ export function validateGenerated(p: GeneratedProblem): GeneratedProblem | null 
   return { prompt, answer: `${Number(m[1])} R ${Number(m[2])}`, answerKind: "remainder", hint, explanation };
 }
 
-/** How many slots in a drill of `count` problems go to queued practice problems. */
-export function practiceSlots(count: number, available: number): number {
+/**
+ * Keeps only problems whose answer key matches an independent solve of the same problem.
+ * `solved[i]` is the second solver's answer to `problems[i]` (or missing if it couldn't solve it).
+ */
+export function keepVerified<P extends GeneratedProblem>(problems: P[], solved: (string | null | undefined)[]): P[] {
+  return problems.filter((p, i) => {
+    const answer = solved[i];
+    return !!answer && checkAnswer(p.answerKind, p.answer, answer);
+  });
+}
+
+/**
+ * How many slots in a drill of `count` problems go to queued practice problems:
+ * up to a third, or up to half while a quiz is coming up.
+ */
+export function practiceSlots(count: number, available: number, quizComing = false): number {
   if (available <= 0 || count <= 0) return 0;
-  return Math.min(available, Math.max(1, Math.floor(count / 3)));
+  return Math.min(available, Math.max(1, Math.floor(count / (quizComing ? 2 : 3))));
+}
+
+/**
+ * Splits a drill's practice slots between quiz prep and other practice. Quiz problems are
+ * paced so they're spread over the days left before the quiz, rather than all on day one.
+ */
+export function choosePractice(count: number, quizAvailable: number, daysToQuiz: number, otherAvailable: number) {
+  const cap = practiceSlots(count, quizAvailable + otherAvailable, quizAvailable > 0);
+  const pace = Math.ceil(quizAvailable / Math.max(1, daysToQuiz + 1));
+  const quiz = Math.min(quizAvailable, cap, Math.max(1, pace) * (quizAvailable > 0 ? 1 : 0));
+  const other = Math.min(otherAvailable, cap - quiz, practiceSlots(count, otherAvailable));
+  return { quiz, other };
 }
 
 /** Spreads practice problems through the drill instead of bunching them at the end. */

@@ -46,3 +46,35 @@ export async function askStructured<S extends z.ZodType>(args: {
   if (response.stop_reason === "refusal") return null;
   return response.parsed_output ?? null;
 }
+
+/** Long web research can pause mid-turn; it's resumed this many times at most. */
+const MAX_RESUMES = 3;
+
+/**
+ * Lets Claude search and read the web, then returns its written answer as plain text.
+ * Kept apart from askStructured because search results come back as cited text blocks.
+ */
+export async function researchWeb(args: { system: string; content: Anthropic.Beta.BetaContentBlockParam[]; maxSearches: number }): Promise<string> {
+  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: args.content }];
+  for (let turn = 0; ; turn++) {
+    const response = await anthropic().beta.messages.create({
+      model: MODEL,
+      max_tokens: 16000,
+      ...FALLBACK,
+      output_config: { effort: "medium" },
+      system: args.system,
+      tools: [
+        { type: "web_search_20260209", name: "web_search", max_uses: args.maxSearches },
+        { type: "web_fetch_20260209", name: "web_fetch", max_uses: args.maxSearches },
+      ],
+      messages,
+    });
+    if (response.stop_reason === "pause_turn" && turn < MAX_RESUMES) {
+      // Sending the paused turn back lets the server pick up where it stopped.
+      messages.push({ role: "assistant", content: response.content });
+      continue;
+    }
+    if (response.stop_reason === "refusal") return "";
+    return response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  }
+}

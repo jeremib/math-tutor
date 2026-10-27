@@ -19,6 +19,11 @@ services:
       - DATA_DIR=/data
       # Optional: the homework helper is off without it.
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Optional: weekly parent emails through Resend, and the secret for the weekly cron call.
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - APP_URL=${APP_URL:-https://mathbuddy.styros.tech}
+      - CRON_SECRET=${CRON_SECRET:-}
     volumes:
       - math_tutor_data:/data
     networks: [math-tutor-network]

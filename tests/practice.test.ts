@@ -45,3 +45,15 @@ test("normalizes misconception tags", () => {
   assert.equal(normalizeTag("--forgets_to_carry--"), "forgets-to-carry");
   assert.equal(normalizeTag("???"), "unnamed");
 });
+
+test("paces quiz practice over the days before the quiz", async () => {
+  const { choosePractice } = await import("../src/lib/practice.ts");
+  // 20 quiz problems, quiz in 4 days: 4 a day, within half of an 8-problem drill.
+  assert.deepEqual(choosePractice(8, 20, 4, 0), { quiz: 4, other: 0 });
+  // Quiz tomorrow: as many as fit in half the drill.
+  assert.deepEqual(choosePractice(8, 20, 1, 3), { quiz: 4, other: 0 });
+  // Quiz far away: at least one a day, leaving room for other practice.
+  assert.deepEqual(choosePractice(9, 4, 30, 5), { quiz: 1, other: 3 });
+  // No quiz: the usual third.
+  assert.deepEqual(choosePractice(9, 0, 0, 5), { quiz: 0, other: 3 });
+});

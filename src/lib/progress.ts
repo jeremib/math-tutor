@@ -13,7 +13,40 @@ export type SkillState = {
   attempts: number;
   mastered: boolean;
   lastPracticedAt: number | null;
+  /** When a mastered skill is next due for review (ms), or null if it has never been scheduled. */
+  nextReviewAt?: number | null;
+  reviewIntervalDays?: number;
 };
+
+const DAY_MS = 86_400_000;
+/** Longest gap between reviews of a mastered skill. */
+export const MAX_REVIEW_INTERVAL_DAYS = 60;
+/** How much the gap grows after each review answered right on the first try. */
+export const REVIEW_GROWTH = 2.5;
+
+/**
+ * Spaced review: each first-try-correct review pushes the next one further out;
+ * a miss brings the skill back tomorrow.
+ */
+export function scheduleReview(intervalDays: number, correct: boolean, now = Date.now()): { reviewIntervalDays: number; nextReviewAt: number } {
+  const next = correct ? Math.min(MAX_REVIEW_INTERVAL_DAYS, Math.max(2, intervalDays * REVIEW_GROWTH)) : 1;
+  return { reviewIntervalDays: next, nextReviewAt: now + next * DAY_MS };
+}
+
+/**
+ * Orders mastered skills for review: the most overdue (relative to their interval) first,
+ * then never-scheduled skills weakest first, then skills not yet due, soonest first.
+ */
+export function reviewOrder(states: SkillState[], now = Date.now()): SkillState[] {
+  const scheduled = (s: SkillState) => s.nextReviewAt != null;
+  const overdue = (s: SkillState) => (now - s.nextReviewAt!) / ((s.reviewIntervalDays ?? 1) * DAY_MS);
+  const due = states.filter((s) => scheduled(s) && s.nextReviewAt! <= now).sort((a, b) => overdue(b) - overdue(a));
+  const unscheduled = states.filter((s) => !scheduled(s))
+    // Weakest first; among equals, the most recent material in the curriculum.
+    .sort((a, b) => a.mastery - b.mastery || order(b.skillId) - order(a.skillId));
+  const later = states.filter((s) => scheduled(s) && s.nextReviewAt! > now).sort((a, b) => a.nextReviewAt! - b.nextReviewAt!);
+  return [...due, ...unscheduled, ...later];
+}
 
 /** Exponentially weighted mastery: recent answers count more than old ones. */
 export function updateMastery(mastery: number, correct: boolean): number {
@@ -55,16 +88,12 @@ export function skillsToUnlock(states: SkillState[]): string[] {
 /**
  * Picks the skill for each problem in a daily drill.
  * Most problems practice skills being learned (or the parent's focus skills);
- * the rest review mastered skills, weakest and least recent first.
+ * the rest review mastered skills that are due (see reviewOrder).
  */
-export function chooseDrillSkills(states: SkillState[], count: number, focusSkillIds: string[] = []): string[] {
+export function chooseDrillSkills(states: SkillState[], count: number, focusSkillIds: string[] = [], now = Date.now()): string[] {
   const focus = focusSkillIds.filter((id) => SKILLS_BY_ID.has(id));
   const learning = states.filter((s) => !s.mastered).sort((a, b) => order(a.skillId) - order(b.skillId)).map((s) => s.skillId);
-  const review = states
-    .filter((s) => s.mastered)
-    // Weakest first; among equals, the most recent material in the curriculum.
-    .sort((a, b) => a.mastery - b.mastery || order(b.skillId) - order(a.skillId))
-    .map((s) => s.skillId);
+  const review = reviewOrder(states.filter((s) => s.mastered), now).map((s) => s.skillId);
 
   const primary = focus.length ? focus : learning.slice(0, ACTIVE_SKILLS);
   const reviewPool = review.slice(0, Math.max(3, Math.ceil(count / 2)));

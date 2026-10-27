@@ -8,7 +8,7 @@ export async function POST(req: Request) {
   const session = await getStudent();
   if (!session) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
   const { student, family } = session;
-  if (!student.homeworkEnabled) return NextResponse.json({ error: "Homework help is turned off." }, { status: 403 });
+  if (!student.aiEnabled) return NextResponse.json({ error: "The AI tutor is turned off." }, { status: 403 });
 
   const form = await req.formData();
   const text = String(form.get("text") ?? "").trim().slice(0, 2000);

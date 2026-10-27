@@ -11,7 +11,7 @@ const MAX_MESSAGES = 80;
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getStudent();
   if (!auth) return NextResponse.json({ error: "Not logged in" }, { status: 401 });
-  if (!auth.student.homeworkEnabled) return NextResponse.json({ error: "Homework help is turned off." }, { status: 403 });
+  if (!auth.student.aiEnabled) return NextResponse.json({ error: "The AI tutor is turned off." }, { status: 403 });
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Bad request" }, { status: 400 });
   const typed = String(form.get("text") ?? "").trim().slice(0, 1000);

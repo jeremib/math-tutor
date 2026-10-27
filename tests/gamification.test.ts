@@ -57,3 +57,10 @@ test("avatars unlock by level", () => {
   assert.ok(!avatarUnlocked("not-an-avatar", 99));
   assert.equal(new Set(AVATARS.map((a) => a.emoji)).size, AVATARS.length);
 });
+
+test("weekly reports cover the week just ending", async () => {
+  const { reportWeek } = await import("../src/lib/gamification.ts");
+  assert.equal(reportWeek("2026-10-25"), "2026-10-19"); // Sunday: this week
+  assert.equal(reportWeek("2026-10-26"), "2026-10-19"); // Monday: last week
+  assert.equal(reportWeek("2026-10-28"), "2026-10-26"); // midweek: this week so far
+});
