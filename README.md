@@ -7,7 +7,7 @@ Family math tutoring: short daily drills that adapt to each child, plus a homewo
 - **Multi-family accounts.** A parent signs up and creates a family. Other parents can be added to the same family.
 - **Student logins.** Each child gets a username and PIN and logs in with the family code (e.g. `OWL-4821`).
 - **Daily drills.** Each day's set is mostly the skills the child is learning now (or the parent's chosen focus skills), plus review of mastered skills. Kids get two tries, an optional hint, and a worked explanation.
-- **Progression.** A skill is mastered after at least 8 attempts with high recent accuracy. Mastering a skill unlocks the next one in the K–8 curriculum (`src/lib/curriculum.ts`), across grade levels too.
+- **Progression.** A skill is mastered after at least 8 attempts with high recent accuracy. Mastering a skill unlocks the next one in the K–12 curriculum (`src/lib/curriculum.ts`), across grade levels too.
 - **Homework helper.** Kids upload a photo or type a problem. Claude tutors them step by step with questions and never gives the final answer. Parents can read every conversation.
 - **Mistake diagnosis.** When a child misses a drill problem, Claude works out why from their exact wrong answers (and their drawn work, if any) and explains it to them. Repeated mistakes are recorded as misconceptions (e.g. "adds the tops and the bottoms"), shown to parents, and targeted with practice problems in the next drills. Two targeted problems right on the first try mark one fixed. Logic in `src/lib/coach.ts` and `src/lib/practice.ts`.
 - **Show your work.** A scratchpad in drills and homework chats. Claude reads the drawing step by step and points to the first line that went wrong.
@@ -56,7 +56,7 @@ Uploaded homework photos are stored on disk in `DATA_DIR/uploads`. If you run mo
 
 | Path | What |
 |---|---|
-| `src/lib/curriculum.ts` | Skills K–8 and their problem generators |
+| `src/lib/curriculum.ts` | Skills K–12 and their problem generators |
 | `src/lib/answers.ts` | Answer checking (fractions, decimals, mixed numbers, remainders) |
 | `src/lib/progress.ts` | Mastery, unlocking, drill composition, streaks (pure, unit-tested) |
 | `src/lib/learning.ts` | Database-backed drills and progress |

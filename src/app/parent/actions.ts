@@ -13,7 +13,7 @@ import { totalXp } from "@/lib/achievements";
 import type { FormState } from "@/app/actions/auth";
 
 const pin = z.string().trim().regex(/^\d{4,8}$/, "PIN must be 4–8 digits");
-const grade = z.coerce.number().int().min(0).max(8);
+const grade = z.coerce.number().int().min(0).max(12);
 
 const studentSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(40),

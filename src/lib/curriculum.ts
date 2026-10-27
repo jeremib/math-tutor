@@ -488,6 +488,189 @@ export const SKILLS: Skill[] = [
       return numberProblem(`√${n * n} = ?`, n, "What number times itself makes this?", `${n} × ${n} = ${n * n}`);
     },
   },
+  // Grade 9 (Algebra 1)
+  {
+    id: "g9-distribute", grade: 9, strand: "Equations", name: "Equations with parentheses",
+    description: "Solve equations like 3(x − 4) = 15.",
+    generate: (r) => {
+      const x = int(r, -9, 12), a = int(r, 2, 7), b = int(r, -9, 9) || 2;
+      const inner = b < 0 ? `x − ${-b}` : `x + ${b}`;
+      return numberProblem(`Solve for x:  ${a}(${inner}) = ${a * (x + b)}`, x, `Divide both sides by ${a} first.`, `${inner} = ${x + b}, so x = ${x}`);
+    },
+  },
+  {
+    id: "g9-systems", grade: 9, strand: "Equations", name: "Systems of equations",
+    description: "Solve two equations in two unknowns by adding or substituting.",
+    generate: (r) => {
+      const x = int(r, -6, 10), y = int(r, -6, 10);
+      return numberProblem(`x + y = ${x + y} and x − y = ${x - y}. What is x?`, x, "Add the two equations together; the y's cancel.", `2x = ${2 * x}, so x = ${x} (and y = ${y})`);
+    },
+  },
+  {
+    id: "g9-exponents", grade: 9, strand: "Expressions", name: "Exponent rules",
+    description: "Multiply powers and raise powers to powers.",
+    generate: (r) => {
+      const a = int(r, 2, 9), b = int(r, 2, 6);
+      if (r() < 0.5) return numberProblem(`x^${a} · x^${b} = x^?`, a + b, "Multiplying powers of the same base adds the exponents.", `x^${a} · x^${b} = x^${a + b}`);
+      return numberProblem(`(x^${a})^${b} = x^?`, a * b, "A power of a power multiplies the exponents.", `(x^${a})^${b} = x^${a * b}`);
+    },
+  },
+  {
+    id: "g9-factor", grade: 9, strand: "Quadratics", name: "Solving by factoring",
+    description: "Solve x² + bx + c = 0 by factoring.",
+    generate: (r) => {
+      const p = int(r, -9, 9), q = int(r, -9, 9);
+      const b = -(p + q), c = p * q;
+      const term = (v: number, t: string) => (v === 0 ? "" : v < 0 ? ` − ${v === -1 && t ? "" : -v}${t}` : ` + ${v === 1 && t ? "" : v}${t}`);
+      return numberProblem(`x²${term(b, "x")}${term(c, "")} = 0. What is the larger solution?`, Math.max(p, q), "Find two numbers that multiply to the last number and add to the middle one.",
+        `(x ${p < 0 ? "+" : "−"} ${Math.abs(p)})(x ${q < 0 ? "+" : "−"} ${Math.abs(q)}) = 0, so x = ${p} or x = ${q}`);
+    },
+  },
+  {
+    id: "g9-functions", grade: 9, strand: "Functions", name: "Evaluating functions",
+    description: "Find f(k) for a quadratic or linear function.",
+    generate: (r) => {
+      const a = int(r, 1, 4), b = int(r, -6, 6), c = int(r, -9, 9), k = int(r, -4, 5);
+      const f = `${a === 1 ? "" : a}x²${b < 0 ? ` − ${-b}x` : b ? ` + ${b}x` : ""}${c < 0 ? ` − ${-c}` : c ? ` + ${c}` : ""}`;
+      const v = a * k * k + b * k + c;
+      return numberProblem(`f(x) = ${f}. What is f(${k})?`, v, `Replace every x with ${k}. Square first.`, `${a}(${k})² + ${b}(${k}) + ${c} = ${v}`);
+    },
+  },
+  // Grade 10 (Geometry)
+  {
+    id: "g10-polygon-angles", grade: 10, strand: "Geometry", name: "Polygon angles",
+    description: "Interior angles of regular polygons.",
+    generate: (r) => {
+      const [n, name] = pick(r, [[3, "triangle"], [4, "square"], [5, "pentagon"], [6, "hexagon"], [8, "octagon"], [9, "nonagon"], [10, "decagon"], [12, "dodecagon"]] as [number, string][]);
+      return numberProblem(`How many degrees is each interior angle of a regular ${name} (${n} sides)?`, ((n - 2) * 180) / n, "The angles add up to (sides − 2) × 180°.", `(${n} − 2) × 180 = ${(n - 2) * 180}; ÷ ${n} = ${((n - 2) * 180) / n}`);
+    },
+  },
+  {
+    id: "g10-similar", grade: 10, strand: "Geometry", name: "Similar triangles",
+    description: "Use a scale factor to find a missing side.",
+    generate: (r) => {
+      const a = int(r, 2, 9), k = int(r, 2, 5);
+      let b = int(r, 3, 12);
+      if (b === a) b++;
+      return numberProblem(`Two triangles are similar. A side of ${a} in the small one matches a side of ${a * k} in the big one. A side of ${b} in the small one matches what side in the big one?`,
+        b * k, "Find the scale factor: big ÷ small.", `Scale factor ${a * k} ÷ ${a} = ${k}; ${b} × ${k} = ${b * k}`);
+    },
+  },
+  {
+    id: "g10-distance", grade: 10, strand: "Coordinate geometry", name: "Distance between points",
+    description: "The distance formula.",
+    generate: (r) => {
+      const [dx, dy, d] = pick(r, [[3, 4, 5], [6, 8, 10], [5, 12, 13], [8, 15, 17], [9, 12, 15]]);
+      const x1 = int(r, -5, 5), y1 = int(r, -5, 5);
+      const sx = r() < 0.5 ? 1 : -1, sy = r() < 0.5 ? 1 : -1;
+      return numberProblem(`How far apart are (${x1}, ${y1}) and (${x1 + sx * dx}, ${y1 + sy * dy})?`, d, "d = √((x₂ − x₁)² + (y₂ − y₁)²)", `√(${dx}² + ${dy}²) = √${d * d} = ${d}`);
+    },
+  },
+  {
+    id: "g10-volume", grade: 10, strand: "Geometry", name: "Volume of solids",
+    description: "Volume of prisms and cylinders.",
+    generate: (r) => {
+      const a = int(r, 2, 9), b = int(r, 2, 9), h = int(r, 2, 10);
+      if (r() < 0.5) return numberProblem(`A box is ${a} by ${b} by ${h}. What is its volume?`, a * b * h, "Volume = length × width × height.", `${a} × ${b} × ${h} = ${a * b * h}`);
+      return numberProblem(`A cylinder has radius ${a} and height ${h}. Using π ≈ 3.14, what is its volume?`, dec(3.14 * a * a * h), "Volume = π × radius² × height.", `3.14 × ${a}² × ${h} = ${dec(3.14 * a * a * h)}`);
+    },
+  },
+  {
+    id: "g10-trig-ratios", grade: 10, strand: "Trigonometry", name: "Trig ratios",
+    description: "Sine, cosine and tangent in a right triangle.",
+    generate: (r) => {
+      const [a, b, c] = pick(r, [[3, 4, 5], [5, 12, 13], [8, 15, 17], [7, 24, 25]]);
+      const [fn, ans, rule] = pick(r, [["sin", fraction(a, c), "opposite ÷ hypotenuse"], ["cos", fraction(b, c), "adjacent ÷ hypotenuse"], ["tan", fraction(a, b), "opposite ÷ adjacent"]] as [string, string, string][]);
+      return numberProblem(`A right triangle has legs ${a} and ${b} and hypotenuse ${c}. Angle A is opposite the side of ${a}. What is ${fn} A? (Give a fraction.)`, ans, `${fn} = ${rule}`, `${fn} A = ${rule} = ${ans}`);
+    },
+  },
+  // Grade 11 (Algebra 2)
+  {
+    id: "g11-discriminant", grade: 11, strand: "Quadratics", name: "Number of solutions",
+    description: "Use the discriminant b² − 4ac.",
+    generate: (r) => {
+      const sign = () => (r() < 0.5 ? -1 : 1);
+      const a = int(r, 1, 3), b = sign() * int(r, 1, 8), c = sign() * int(r, 1, 8);
+      const disc = b * b - 4 * a * c;
+      return numberProblem(`How many real solutions does ${a === 1 ? "" : a}x² ${b < 0 ? "−" : "+"} ${Math.abs(b)}x ${c < 0 ? "−" : "+"} ${Math.abs(c)} = 0 have?`,
+        disc > 0 ? 2 : disc === 0 ? 1 : 0, "Work out b² − 4ac: positive means 2, zero means 1, negative means 0.", `b² − 4ac = ${b * b} − ${4 * a * c} = ${disc}`);
+    },
+  },
+  {
+    id: "g11-logs", grade: 11, strand: "Exponents and logs", name: "Logarithms",
+    description: "Evaluate logs of exact powers.",
+    generate: (r) => {
+      const base = pick(r, [2, 3, 5, 10]), k = int(r, 0, base === 2 ? 7 : base === 10 ? 5 : 4);
+      return numberProblem(`log base ${base} of ${base ** k} = ?`, k, `What power of ${base} makes ${base ** k}?`, `${base}^${k} = ${base ** k}`);
+    },
+  },
+  {
+    id: "g11-growth", grade: 11, strand: "Exponents and logs", name: "Exponential growth",
+    description: "Doubling and tripling over time.",
+    generate: (r) => {
+      const start = int(r, 2, 30) * 5, f = pick(r, [2, 3]), n = int(r, 2, f === 2 ? 6 : 4);
+      return numberProblem(`A colony of ${start} bacteria ${f === 2 ? "doubles" : "triples"} every hour. How many are there after ${n} hours?`, start * f ** n, `Multiply by ${f} once for each hour: ${start} × ${f}^${n}.`, `${start} × ${f ** n} = ${start * f ** n}`);
+    },
+  },
+  {
+    id: "g11-sequences", grade: 11, strand: "Sequences", name: "Arithmetic and geometric sequences",
+    description: "Find the nth term of a sequence.",
+    generate: (r) => {
+      const a = int(r, -5, 10), n = int(r, 6, 12);
+      if (r() < 0.6) {
+        const d = int(r, -4, 6) || 3;
+        return numberProblem(`The sequence ${a}, ${a + d}, ${a + 2 * d}, ${a + 3 * d}, … What is term number ${n}?`, a + (n - 1) * d, `Each term adds ${d}. Term n = first + (n − 1) × ${d}.`, `${a} + ${n - 1} × ${d} = ${a + (n - 1) * d}`);
+      }
+      const g = int(r, 1, 3), q = 2, m = int(r, 5, 8);
+      return numberProblem(`The sequence ${g}, ${g * q}, ${g * q * q}, ${g * q ** 3}, … What is term number ${m}?`, g * q ** (m - 1), `Each term doubles. Term n = first × 2^(n − 1).`, `${g} × 2^${m - 1} = ${g * q ** (m - 1)}`);
+    },
+  },
+  {
+    id: "g11-complex", grade: 11, strand: "Complex numbers", name: "Powers of i",
+    description: "Simplify powers of the imaginary unit.",
+    generate: (r) => {
+      const n = int(r, 2, 40);
+      const ans = ["1", "i", "-1", "-i"][n % 4];
+      return { prompt: `Simplify i^${n}.`, answer: ans, answerKind: "choice", choices: ["1", "i", "-1", "-i"],
+        hint: "The powers of i repeat every 4: i, −1, −i, 1.", explanation: `${n} ÷ 4 leaves ${n % 4}, so i^${n} = i^${n % 4} = ${ans}` };
+    },
+  },
+  // Grade 12 (Precalculus and intro calculus)
+  {
+    id: "g12-unit-circle", grade: 12, strand: "Trigonometry", name: "Unit circle",
+    description: "Exact sine and cosine values.",
+    generate: (r) => {
+      const [fn, deg, ans] = pick(r, [["sin", 0, "0"], ["sin", 30, "1/2"], ["sin", 90, "1"], ["sin", 150, "1/2"], ["sin", 210, "-1/2"], ["sin", 270, "-1"], ["cos", 0, "1"], ["cos", 60, "1/2"], ["cos", 120, "-1/2"], ["cos", 180, "-1"], ["cos", 300, "1/2"]] as [string, number, string][]);
+      return numberProblem(`${fn}(${deg}°) = ?`, ans, `On the unit circle, cos is the x-coordinate and sin is the y-coordinate.`, `${fn}(${deg}°) = ${ans}`);
+    },
+  },
+  {
+    id: "g12-combinations", grade: 12, strand: "Probability", name: "Combinations",
+    description: "Count ways to choose a group.",
+    generate: (r) => {
+      const n = int(r, 4, 10), k = int(r, 2, Math.min(4, n - 1));
+      let c = 1;
+      for (let i = 0; i < k; i++) c = (c * (n - i)) / (i + 1);
+      return numberProblem(`How many ways can you choose ${k} people from a group of ${n}?`, c, "n! ÷ (k! × (n − k)!) — order doesn't matter.", `${n} choose ${k} = ${c}`);
+    },
+  },
+  {
+    id: "g12-limits", grade: 12, strand: "Calculus", name: "Limits",
+    description: "Limits that need factoring first.",
+    generate: (r) => {
+      const a = int(r, -6, 8) || 3;
+      return numberProblem(`What is the limit of (x² − ${a * a}) / (x ${a < 0 ? "+" : "−"} ${Math.abs(a)}) as x approaches ${a}?`, 2 * a, "Factor the top as a difference of squares and cancel.", `The top factors so the bottom cancels, leaving x ${a < 0 ? "−" : "+"} ${Math.abs(a)}. Plug in ${a}: ${2 * a}`);
+    },
+  },
+  {
+    id: "g12-derivatives", grade: 12, strand: "Calculus", name: "Power rule",
+    description: "Find the slope of a polynomial at a point.",
+    generate: (r) => {
+      const a = int(r, 1, 5), n = int(r, 2, 4), k = int(r, -3, 3);
+      const v = a * n * k ** (n - 1);
+      return numberProblem(`f(x) = ${a === 1 ? "" : a}x^${n}. What is f′(${k})?`, v, "Power rule: the derivative of axⁿ is n·a·xⁿ⁻¹.", `f′(x) = ${a * n}x^${n - 1}; f′(${k}) = ${a * n} × ${k}^${n - 1} = ${v}`);
+    },
+  },
 ];
 
 export const SKILLS_BY_ID = new Map(SKILLS.map((s) => [s.id, s]));
@@ -495,6 +678,7 @@ export const SKILLS_BY_ID = new Map(SKILLS.map((s) => [s.id, s]));
 export const GRADE_LABELS: Record<number, string> = {
   0: "Kindergarten", 1: "1st grade", 2: "2nd grade", 3: "3rd grade", 4: "4th grade",
   5: "5th grade", 6: "6th grade", 7: "7th grade", 8: "8th grade",
+  9: "9th grade", 10: "10th grade", 11: "11th grade", 12: "12th grade",
 };
 
 export function skillsForGrade(grade: number): Skill[] {

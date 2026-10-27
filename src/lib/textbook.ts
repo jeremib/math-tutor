@@ -20,7 +20,7 @@ const BookSchema = z.object({
   found: z.boolean().describe("True only if you have this book's real chapter list, from the photos or a source you found for this exact book."),
   title: z.string().describe("The book's full title as published, including the grade or level if it has one."),
   publisher: z.string().describe("The publisher, or empty if unknown."),
-  grade: z.number().int().describe("The grade the book is for: 0 for kindergarten, 1–8, or -1 if unknown."),
+  grade: z.number().int().describe("The grade the book is for: 0 for kindergarten, 1–12, or -1 if unknown."),
   chapters: z.array(z.object({
     title: z.string().describe("The chapter, unit or module title as the book prints it, with its number, like \"Chapter 4: Divide by 1-Digit Numbers\"."),
     lessons: z.array(z.string()).describe("The lesson titles in this chapter, in order. Empty if you don't have them."),
@@ -88,7 +88,7 @@ ${MATCH_RULES}`,
       ] : [{ type: "text", text: `Research notes:\n\n${research}` }],
     });
     const chapters = result?.found ? cleanChapters(result.chapters) : [];
-    const grade = result && result.grade >= 0 && result.grade <= 8 ? result.grade : null;
+    const grade = result && result.grade >= 0 && result.grade <= 12 ? result.grade : null;
     await db.update(schema.textbooks).set({
       status: chapters.length ? "ready" : fromPhotos ? "failed" : "needs_toc",
       title: result?.title.trim().slice(0, 160) || book.title,

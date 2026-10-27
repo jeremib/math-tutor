@@ -34,7 +34,7 @@ export default async function Home() {
       <footer className="border-t border-[#d5e2f3] bg-white/70">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-sm text-slate-500">
           <Logo />
-          <p>Homework helper powered by Claude. Daily drills cover kindergarten through 8th grade.</p>
+          <p>Homework helper powered by Claude. Daily drills cover kindergarten through 12th grade.</p>
         </div>
       </footer>
     </main>
@@ -55,7 +55,7 @@ function Hero() {
           <Link href="/signup" className="btn px-6 py-3 text-lg">Create a family account</Link>
           <a href="#helper" className="btn-secondary px-5 py-3">How the helper works</a>
         </div>
-        <p className="mt-5 text-sm font-semibold text-slate-500">For kids in kindergarten through 8th grade. Works on phones, tablets and laptops.</p>
+        <p className="mt-5 text-sm font-semibold text-slate-500">For kids in kindergarten through 12th grade. Works on phones, tablets and laptops.</p>
       </div>
       <TutorDemo />
     </section>
