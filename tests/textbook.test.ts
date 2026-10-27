@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chapterFocus, cleanChapters, needsChapterPractice, skillChoicesFor, MAX_CHAPTERS } from "../src/lib/textbook-plan.ts";
+import { chapterFocus, chapterProgress, cleanChapters, needsChapterPractice, skillChoicesFor, MAX_CHAPTERS } from "../src/lib/textbook-plan.ts";
 
 test("cleanChapters drops unknown skills, blank titles and extra chapters", () => {
   const chapters = cleanChapters([
@@ -54,4 +54,23 @@ test("written problems fill most of a drill only when no built-in skill fits", (
 test("spreadByLesson alternates lessons", () => {
   const ps = ["a", "a", "a", "b", "c", "c"].map((skillId, i) => ({ skillId, i }));
   assert.deepEqual(spreadByLesson(ps).map((p) => p.skillId), ["a", "b", "c", "a", "c", "a"]);
+});
+
+test("chapterProgress tracks skills, and lessons when Claude writes problems for them", () => {
+  const partial = { title: "Fractions", lessons: ["Equivalent fractions", "Compare fractions"], skillIds: ["g4-decimals"], coverage: "partial" as const };
+  const rows = new Map([
+    ["g4-decimals", { mastery: 0.9, attempts: 10, mastered: true }],
+    [lessonSkillId("b1", 2, 0), { mastery: 0.5, attempts: 4, mastered: false }],
+  ]);
+  const p = chapterProgress("b1", 2, partial, rows);
+  assert.deepEqual(p.lessons.map((l) => l.title), ["Equivalent fractions", "Compare fractions"]);
+  assert.equal(p.percent, (1 + 0.5 + 0) / 3);
+  assert.equal(p.started, true);
+  assert.equal(p.done, false);
+
+  // Fully covered chapters are tracked by their skills alone.
+  const full = chapterProgress("b1", 0, { ...partial, coverage: "full" }, rows);
+  assert.equal(full.lessons.length, 0);
+  assert.equal(full.done, true);
+  assert.equal(chapterProgress("b1", 5, partial, new Map()).started, false);
 });

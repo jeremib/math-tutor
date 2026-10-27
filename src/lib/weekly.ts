@@ -8,6 +8,7 @@ import { askStructured } from "./ai";
 import { localDate } from "./progress";
 import { reportWeek, weekDates } from "./gamification";
 import { renderReportEmail } from "./report-email";
+import { lessonTitles } from "./textbook";
 
 /** Facts about one student's week, from the family's local dates. */
 async function weekFacts(student: typeof schema.students.$inferSelect, week: string[]) {
@@ -38,7 +39,8 @@ async function weekFacts(student: typeof schema.students.$inferSelect, week: str
   ]);
   const problems = drills.reduce((n, d) => n + d.total, 0);
   const right = drills.reduce((n, d) => n + d.correct, 0);
-  const masteredNames = mastered.map((m) => SKILLS_BY_ID.get(m.skillId)?.name).filter((n): n is string => !!n);
+  const lessons = await lessonTitles(mastered.map((m) => m.skillId));
+  const masteredNames = mastered.map((m) => SKILLS_BY_ID.get(m.skillId)?.name ?? lessons.get(m.skillId)).filter((n): n is string => !!n);
   return {
     stats: {
       drills: drills.length,

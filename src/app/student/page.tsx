@@ -8,14 +8,17 @@ import { WeekTracker } from "@/components/WeekTracker";
 import { localDate } from "@/lib/progress";
 import { pendingTeachBacks } from "@/lib/teachback";
 import { testPrepsFor } from "@/lib/testprep";
+import { textbookProgress } from "@/lib/textbook";
+import { BookProgress } from "@/components/BookProgress";
 
 export default async function StudentHome() {
   const { student, family } = await requireStudent();
-  const [stats, game, teachBacks, preps] = await Promise.all([
+  const [stats, game, teachBacks, preps, book] = await Promise.all([
     studentStats(student, family.timezone),
     gameProfile(student, family.timezone),
     student.aiEnabled ? pendingTeachBacks(student.id) : [],
     student.aiEnabled ? testPrepsFor(student.id, localDate(family.timezone)) : [],
+    textbookProgress(student.id),
   ]);
   const nextQuiz = preps.find((p) => p.upcoming && p.status === "ready");
   const learning = stats.skills.filter((s) => !s.masteredAt);
@@ -117,17 +120,17 @@ export default async function StudentHome() {
 
       <section className="card">
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-xl font-bold">What you&apos;re learning</h2>
+          <h2 className="text-xl font-bold">{book ? `📖 ${book.book.title}` : "What you\u2019re learning"}</h2>
           <Link href="/student/trophies" className="text-sm font-semibold text-brand-600">See trophies →</Link>
         </div>
-        <ul className="space-y-3">
+        {book ? <BookProgress progress={book} forStudent /> : <ul className="space-y-3">
           {learning.map((s) => (
             <li key={s.skillId}>
               <div className="mb-1 flex justify-between text-sm"><span className="font-semibold">{s.skill!.name}</span><span className="text-slate-500">{Math.round(s.mastery * 100)}%</span></div>
               <MasteryBar value={s.mastery} mastered={false} />
             </li>
           ))}
-        </ul>
+        </ul>}
         {game.badges.length > 0 && (
           <div className="mt-5 flex flex-wrap gap-2">
             {game.badges.slice(0, 6).map((b) => (

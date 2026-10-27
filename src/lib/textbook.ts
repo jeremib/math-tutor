@@ -1,15 +1,16 @@
 import "server-only";
-import { and, count, desc, eq, isNull, like, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { z } from "zod";
-import { getDb, schema } from "@/db";
+import { getDb, schema, type Db } from "@/db";
 import type { TextbookImage } from "@/db/schema";
 import { GRADE_LABELS, SKILLS, SKILLS_BY_ID } from "./curriculum";
 import { askStructured, imageBlock, researchWeb } from "./ai";
 import { PRACTICE_RULES, PracticeSchema, checkedPractice } from "./coach";
 import { readUpload, type ImageType } from "./tutor";
 import {
-  MAX_CHAPTERS, MAX_CHAPTER_SKILLS, chapterLessons, chapterSkillPrefix, cleanChapters, lessonSkillId, needsChapterPractice, parseLessonSkill, refillBelow,
+  MAX_CHAPTERS, MAX_CHAPTER_SKILLS, chapterLessons, chapterProgress, chapterSkillPrefix, cleanChapters, lessonSkillId, needsChapterPractice,
+  parseLessonSkill, refillBelow, type ItemProgress,
 } from "./textbook-plan";
 
 
@@ -250,4 +251,36 @@ export async function textbookFor(studentId: string) {
   const db = await getDb();
   const [book] = await db.select().from(schema.textbooks).where(eq(schema.textbooks.studentId, studentId));
   return book ?? null;
+}
+
+/** A ready textbook with the student's progress through each chapter. */
+export async function textbookProgress(studentId: string) {
+  const book = await textbookFor(studentId);
+  if (book?.status !== "ready" || !book.chapters.length) return null;
+  const db = await getDb();
+  const rows = await db.select().from(schema.studentSkills).where(eq(schema.studentSkills.studentId, studentId));
+  const states = new Map<string, ItemProgress>(rows.map((r) => [r.skillId, { mastery: r.mastery, attempts: r.attempts, mastered: r.masteredAt !== null }]));
+  return { book, chapters: book.chapters.map((c, i) => ({ ...c, ...chapterProgress(book.id, i, c, states) })) };
+}
+
+/** Lesson titles for lesson skill ids, for messages and reports. Pass a transaction when inside one. */
+export async function lessonTitles(skillIds: string[], tx?: Pick<Db, "select">) {
+  const parsed = skillIds.flatMap((id) => { const at = parseLessonSkill(id); return at ? [{ id, ...at }] : []; });
+  const titles = new Map<string, string>();
+  if (!parsed.length) return titles;
+  const db = tx ?? (await getDb());
+  const books = await db.select({ id: schema.textbooks.id, chapters: schema.textbooks.chapters }).from(schema.textbooks)
+    .where(inArray(schema.textbooks.id, [...new Set(parsed.map((p) => p.textbookId))]));
+  for (const p of parsed) {
+    const chapter = books.find((b) => b.id === p.textbookId)?.chapters[p.chapter];
+    const title = chapter && chapterLessons(chapter)[p.lesson];
+    if (title) titles.set(p.id, title);
+  }
+  return titles;
+}
+
+/** Clears lesson progress for a book whose chapter list is being replaced, since lesson ids are by position. */
+export async function clearLessonProgress(textbookId: string, studentId: string) {
+  await (await getDb()).delete(schema.studentSkills)
+    .where(and(eq(schema.studentSkills.studentId, studentId), like(schema.studentSkills.skillId, `tb:${textbookId}:%`)));
 }

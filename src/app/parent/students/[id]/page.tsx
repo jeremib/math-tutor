@@ -19,7 +19,8 @@ import { localDate } from "@/lib/progress";
 import { RACE_OPS } from "@/lib/race";
 import { RefreshWhilePending, TestPrepForm } from "@/components/TestPrep";
 import { TestPrepList } from "@/components/TestPrepList";
-import { textbookFor } from "@/lib/textbook";
+import { textbookFor, textbookProgress } from "@/lib/textbook";
+import { BookProgress } from "@/components/BookProgress";
 
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -30,7 +31,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
   const db = await getDb();
   const focus = new Set(parseFocus(student));
   const today = localDate(family.timezone);
-  const [stats, game, homework, misses, noticed, preps, raceBests, textbook] = await Promise.all([
+  const [stats, game, homework, misses, noticed, preps, raceBests, textbook, bookProgress] = await Promise.all([
     studentStats(student, family.timezone),
     gameProfile(student, family.timezone),
     db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
@@ -45,6 +46,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
     db.select({ op: schema.factRaces.op, best: max(schema.factRaces.correct) }).from(schema.factRaces)
       .where(and(eq(schema.factRaces.studentId, student.id), isNotNull(schema.factRaces.finishedAt))).groupBy(schema.factRaces.op),
     textbookFor(student.id),
+    textbookProgress(student.id),
   ]);
   const chapter = textbook?.status === "ready" && textbook.currentChapter !== null ? textbook.chapters[textbook.currentChapter] : null;
   const explained = await latestExplanations(student.id, [...noticed.map((m) => m.id), ...homework.map((h) => h.id)]);
@@ -208,6 +210,20 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="card lg:col-span-3">
+          {bookProgress && (
+            <>
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-xl font-bold">📖 {bookProgress.book.title}</h2>
+                <Link href={`/parent/students/${student.id}/textbook`} className="shrink-0 text-sm font-semibold text-brand-600">Textbook plan →</Link>
+              </div>
+              <p className="mb-4 text-sm text-slate-500">
+                Drills follow the book in place of the regular skill path, plus review of what {student.name} has mastered.
+                A lesson or skill turns green once it&apos;s mastered (at least 8 answered, mostly right lately); a chapter gets ✅ when all of them are.
+              </p>
+              <BookProgress progress={bookProgress} />
+            </>
+          )}
+          <SkillsList show={!bookProgress}>
           <h2 className="text-xl font-bold">Skills</h2>
           <p className="mb-4 text-sm text-slate-500">Green skills are mastered. Earlier-grade skills start as mastered and are reviewed in drills; any gaps will show up here.</p>
           {[...byGrade.entries()].sort((a, b) => b[0] - a[0]).map(([grade, skills]) => (
@@ -226,6 +242,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               </ul>
             </div>
           ))}
+          </SkillsList>
         </section>
 
         <div className="space-y-6 lg:col-span-2">
@@ -350,6 +367,17 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
         </form>
       </section>
     </div>
+  );
+}
+
+/** The built-in skill list: the main view without a textbook, tucked away with one. */
+function SkillsList({ show, children }: { show: boolean; children: React.ReactNode }) {
+  if (show) return <>{children}</>;
+  return (
+    <details className="mt-6 border-t border-slate-100 pt-4">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-500">All built-in skills</summary>
+      <div className="mt-3">{children}</div>
+    </details>
   );
 }
 

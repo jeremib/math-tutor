@@ -83,3 +83,35 @@ export function spreadByLesson<P extends { skillId: string }>(problems: P[]): P[
   while (out.length < problems.length) for (const q of queues) if (q.length) out.push(q.shift()!);
   return out;
 }
+
+export type ItemProgress = { mastery: number; attempts: number; mastered: boolean };
+
+export type ChapterProgress = {
+  /** The chapter's built-in drill skills. */
+  skills: { skillId: string; progress: ItemProgress | null }[];
+  /** Lessons tracked through written problems; empty when the skills cover the whole chapter. */
+  lessons: { title: string; skillId: string; progress: ItemProgress | null }[];
+  /** 0–1: mastered items count fully, others by their mastery. */
+  percent: number;
+  started: boolean;
+  done: boolean;
+};
+
+/** How far a student is through a chapter, from their skill and lesson mastery. */
+export function chapterProgress(textbookId: string, index: number, chapter: TextbookChapter, rows: Map<string, ItemProgress>): ChapterProgress {
+  const skills = chapter.skillIds.map((skillId) => ({ skillId, progress: rows.get(skillId) ?? null }));
+  const lessons = needsChapterPractice(chapter)
+    ? chapterLessons(chapter).map((title, j) => {
+      const skillId = lessonSkillId(textbookId, index, j);
+      return { title, skillId, progress: rows.get(skillId) ?? null };
+    })
+    : [];
+  const items = [...skills, ...lessons].map((i) => i.progress);
+  const value = (p: ItemProgress | null) => (!p ? 0 : p.mastered ? 1 : p.mastery);
+  return {
+    skills, lessons,
+    percent: items.length ? items.reduce((n, p) => n + value(p), 0) / items.length : 0,
+    started: items.some((p) => (p?.attempts ?? 0) > 0),
+    done: items.length > 0 && items.every((p) => p?.mastered),
+  };
+}

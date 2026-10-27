@@ -9,8 +9,8 @@ import {
   type SkillState,
 } from "./progress";
 import { RESOLVE_AFTER, choosePractice, mixIntoDrill } from "./practice";
-import { refillChapterPractice, textbookFor } from "./textbook";
-import { chapterSkillPrefix, spreadByLesson, textbookShare } from "./textbook-plan";
+import { lessonTitles, refillChapterPractice, textbookFor } from "./textbook";
+import { chapterSkillPrefix, parseLessonSkill, spreadByLesson, textbookShare } from "./textbook-plan";
 
 type Student = typeof schema.students.$inferSelect;
 /** A connection or an open transaction. */
@@ -33,8 +33,9 @@ export async function skillRows(studentId: string, tx?: Tx) {
   return db.select().from(schema.studentSkills).where(eq(schema.studentSkills.studentId, studentId));
 }
 
+/** Curriculum skills only: textbook lessons are tracked in the same table but never unlocked or drilled by id. */
 function toStates(rows: Awaited<ReturnType<typeof skillRows>>): SkillState[] {
-  return rows.map((r) => ({
+  return rows.filter((r) => SKILLS_BY_ID.has(r.skillId)).map((r) => ({
     skillId: r.skillId, mastery: r.mastery, attempts: r.attempts,
     mastered: r.masteredAt !== null, lastPracticedAt: r.lastPracticedAt?.getTime() ?? null,
     nextReviewAt: r.nextReviewAt?.getTime() ?? null, reviewIntervalDays: r.reviewIntervalDays,
@@ -78,7 +79,11 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
     if (focus.length) {
       await tx.insert(schema.studentSkills).values(focus.map((skillId) => ({ studentId: student.id, skillId }))).onConflictDoNothing();
     }
-    const skills = chooseDrillSkills(toStates(await skillRows(student.id, tx)), student.dailyProblems, focus);
+    // Following a textbook chapter replaces the regular skill path: the chapter's skills (or its written
+    // problems) are the new material, and the rest of the drill reviews what's mastered.
+    const all = toStates(await skillRows(student.id, tx));
+    const followed = chapter ? all.filter((s) => s.mastered || focus.includes(s.skillId)) : all;
+    const skills = chooseDrillSkills(followed.length ? followed : all, student.dailyProblems, focus);
 
     // Two tabs opening the drill at once both get here; the unique index picks one winner.
     const [drill] = await tx.insert(schema.drills).values({ studentId: student.id, date, total: skills.length })
@@ -222,14 +227,16 @@ export async function actOnProblem(studentId: string, timezone: string, problemI
     let drillDone = false;
     let rewards: AwardSummary | null = null;
     if (finished) {
-      // Quiz problems outside the curriculum have no skill to track.
-      const newlyMastered = SKILLS_BY_ID.has(problem.skillId)
+      // Curriculum skills and textbook lessons are tracked; quiz and other written problems have no skill to track.
+      const newlyMastered = SKILLS_BY_ID.has(problem.skillId) || parseLessonSkill(problem.skillId)
         ? await recordSkillResult(tx, studentId, problem.skillId, !!updated.firstTryCorrect)
         : false;
       if (problem.source === "misconception" && problem.misconceptionId && updated.firstTryCorrect) {
         await recordTargetedPractice(tx, problem.misconceptionId);
       }
-      if (newlyMastered) mastered = SKILLS_BY_ID.get(problem.skillId)?.name ?? problem.skillId;
+      if (newlyMastered) {
+        mastered = SKILLS_BY_ID.get(problem.skillId)?.name ?? (await lessonTitles([problem.skillId], tx)).get(problem.skillId) ?? "a textbook lesson";
+      }
       const all = await drillProblems(drill.id, tx);
       const correctCount = all.filter((p) => p.firstTryCorrect).length;
       drillDone = all.every((p) => p.solved !== null);

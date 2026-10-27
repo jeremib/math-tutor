@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
-import { refillChapterPractice, startWritingChapter, textbookFor } from "@/lib/textbook";
+import { clearLessonProgress, refillChapterPractice, startWritingChapter, textbookFor } from "@/lib/textbook";
 import { MAX_CHAPTER_SKILLS, chapterFocus, needsChapterPractice } from "@/lib/textbook-plan";
 
 async function familyTextbook(form: FormData) {
@@ -74,6 +74,9 @@ export async function removeTextbook(form: FormData) {
   const { family } = await requireParent();
   const student = await familyStudent(family.id, String(form.get("studentId")));
   if (!student) return;
-  await (await getDb()).delete(schema.textbooks).where(eq(schema.textbooks.studentId, student.id));
+  const book = await textbookFor(student.id);
+  if (!book) return;
+  await clearLessonProgress(book.id, student.id);
+  await (await getDb()).delete(schema.textbooks).where(eq(schema.textbooks.id, book.id));
   refresh(student.id);
 }

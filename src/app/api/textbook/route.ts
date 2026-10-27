@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { TextbookImage } from "@/db/schema";
 import { familyStudent, getParent } from "@/lib/auth";
-import { lookUpTextbook, textbookFor } from "@/lib/textbook";
+import { clearLessonProgress, lookUpTextbook, textbookFor } from "@/lib/textbook";
 import { saveImageField, saveImageFields } from "@/lib/tutor";
 
 const MAX_TOC_PHOTOS = 4;
@@ -59,6 +59,7 @@ export async function POST(req: Request) {
   if (existing) {
     await db.delete(schema.practiceProblems)
       .where(and(eq(schema.practiceProblems.textbookId, existing.id), isNull(schema.practiceProblems.usedAt)));
+    await clearLessonProgress(existing.id, student.id);
   }
   const [book] = await db.insert(schema.textbooks).values({ studentId: student.id, ...values })
     .onConflictDoUpdate({ target: schema.textbooks.studentId, set: values }).returning();
