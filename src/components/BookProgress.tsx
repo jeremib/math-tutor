@@ -9,6 +9,13 @@ export function BookProgress({ progress, forStudent }: { progress: Progress; for
   const { book, chapters } = progress;
   const current = book.currentChapter !== null ? chapters[book.currentChapter] : undefined;
   const pct = (n: number) => `${Math.round(n * 100)}%`;
+  // The current chapter and what comes after it first; earlier chapters below, most recent first.
+  const at = book.currentChapter ?? -1;
+  const indexed = chapters.map((c, i) => ({ c, i }));
+  const groups = at < 0 ? [{ label: "Chapters", chapters: indexed }] : [
+    { label: "Now and next", chapters: indexed.slice(at) },
+    { label: "Earlier chapters", chapters: indexed.slice(0, at).reverse() },
+  ];
   const items = current ? [
     ...current.lessons.map((l) => ({ id: l.skillId, name: l.title, progress: l.progress })),
     ...current.skills.map((s) => ({ id: s.skillId, name: SKILLS_BY_ID.get(s.skillId)?.name ?? s.skillId, progress: s.progress })),
@@ -41,16 +48,21 @@ export function BookProgress({ progress, forStudent }: { progress: Progress; for
           {forStudent ? "Your grown-up will pick the chapter your class is on." : "Pick the chapter the class is on to start following the book."}
         </p>
       )}
-      <ol className="space-y-2">
-        {chapters.map((c, i) => (
-          <li key={i} className="grid grid-cols-[1fr_6rem] items-center gap-3 text-sm">
-            <span className={`truncate ${i === book.currentChapter ? "font-bold" : c.done ? "text-slate-500" : ""}`}>
-              {c.done ? "✅ " : i === book.currentChapter ? "👉 " : ""}{c.title}
-            </span>
-            {c.started || c.done ? <MasteryBar value={c.percent} mastered={c.done} /> : <span className="text-right text-xs text-slate-400">Not started</span>}
-          </li>
-        ))}
-      </ol>
+      {groups.map((g) => g.chapters.length > 0 && (
+        <div key={g.label}>
+          <h4 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-400">{g.label}</h4>
+          <ol className="space-y-2">
+            {g.chapters.map(({ c, i }) => (
+              <li key={i} className="grid grid-cols-[1fr_6rem] items-center gap-3 text-sm">
+                <span className={`truncate ${i === book.currentChapter ? "font-bold" : c.done ? "text-slate-500" : ""}`}>
+                  {c.done ? "✅ " : i === book.currentChapter ? "👉 " : ""}{c.title}
+                </span>
+                {c.started || c.done ? <MasteryBar value={c.percent} mastered={c.done} /> : <span className="text-right text-xs text-slate-400">Not started</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
     </div>
   );
 }

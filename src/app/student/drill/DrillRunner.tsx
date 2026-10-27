@@ -49,7 +49,8 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
       const res = await fetch(`/api/drill/${problem.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error();
       const data = await res.json() as { problem: Problem; correct: boolean | null; mastered: string | null; rewards: AwardSummary | null };
-      setProblems((ps) => ps.map((p) => (p.id === data.problem.id ? data.problem : p)));
+      // Keep the lesson name the page looked up; answers come back without it.
+      setProblems((ps) => ps.map((p) => (p.id === data.problem.id ? { ...data.problem, skillName: p.skillName } : p)));
       if (data.mastered) setMastered(data.mastered);
       const xp = data.rewards?.xp ?? 0;
       if (data.rewards) {

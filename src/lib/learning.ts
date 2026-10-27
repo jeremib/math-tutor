@@ -141,13 +141,45 @@ export async function drillProblems(drillId: string, tx?: Tx) {
 
 export const MAX_TRIES = 2;
 
+const PRACTICE_NAMES = { curriculum: "Practice", misconception: "Extra practice", homework: "Like your homework", test_prep: "Quiz prep", textbook: "Textbook practice" } as const;
+
+/** What a problem practices: its skill, its textbook lesson, or the kind of practice it is. */
+function topicName(p: { skillId: string; source: keyof typeof PRACTICE_NAMES }, lessons?: Map<string, string>) {
+  return SKILLS_BY_ID.get(p.skillId)?.name ?? lessons?.get(p.skillId) ?? PRACTICE_NAMES[p.source];
+}
+
+/** Lesson titles for a drill's textbook problems. */
+export async function drillLessonNames(problems: { skillId: string }[]) {
+  return lessonTitles(problems.map((p) => p.skillId));
+}
+
+/** The skills and lessons a drill draws from, most problems first. */
+export function drillTopics(problems: { skillId: string; source: keyof typeof PRACTICE_NAMES }[], lessons: Map<string, string>) {
+  const counts = new Map<string, { name: string; count: number; fromBook: boolean }>();
+  for (const p of problems) {
+    const name = topicName(p, lessons);
+    const t = counts.get(name) ?? { name, count: 0, fromBook: lessons.has(p.skillId) };
+    t.count++;
+    counts.set(name, t);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
+/** Today's drill if it has been made, without making it. */
+export async function todaysDrill(student: Student, timezone: string) {
+  const db = await getDb();
+  const [drill] = await db.select().from(schema.drills)
+    .where(and(eq(schema.drills.studentId, student.id), eq(schema.drills.date, todayFor(timezone))));
+  return drill ?? null;
+}
+
 /** Public view of a problem: hides the answer until the problem is finished. */
-export function problemView(p: typeof schema.drillProblems.$inferSelect) {
+export function problemView(p: typeof schema.drillProblems.$inferSelect, lessons?: Map<string, string>) {
   const done = p.solved !== null;
   return {
     id: p.id, position: p.position, prompt: p.prompt, answerKind: p.answerKind,
     choices: p.choices,
-    skillName: SKILLS_BY_ID.get(p.skillId)?.name ?? (p.source === "textbook" ? "Textbook practice" : "Quiz prep"),
+    skillName: topicName(p, lessons),
     tries: p.tries, usedHint: p.usedHint, lastAnswer: p.lastAnswer, done, solved: p.solved,
     hint: p.usedHint || done ? p.hint : null,
     answer: done ? p.answer : null,

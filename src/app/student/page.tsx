@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireStudent } from "@/lib/auth";
-import { studentStats } from "@/lib/learning";
+import { drillLessonNames, drillProblems, drillTopics, parseFocus, studentStats, todaysDrill } from "@/lib/learning";
+import { SKILLS_BY_ID } from "@/lib/curriculum";
 import { gameProfile } from "@/lib/achievements";
 import { levelTitle } from "@/lib/gamification";
 import { MasteryBar, Stat, XpBar } from "@/components/ui";
@@ -10,16 +11,26 @@ import { pendingTeachBacks } from "@/lib/teachback";
 import { testPrepsFor } from "@/lib/testprep";
 import { textbookProgress } from "@/lib/textbook";
 import { BookProgress } from "@/components/BookProgress";
+import { DrillTopics } from "@/components/DrillTopics";
 
 export default async function StudentHome() {
   const { student, family } = await requireStudent();
-  const [stats, game, teachBacks, preps, book] = await Promise.all([
+  const [stats, game, teachBacks, preps, book, drill] = await Promise.all([
     studentStats(student, family.timezone),
     gameProfile(student, family.timezone),
     student.aiEnabled ? pendingTeachBacks(student.id) : [],
     student.aiEnabled ? testPrepsFor(student.id, localDate(family.timezone)) : [],
     textbookProgress(student.id),
+    todaysDrill(student, family.timezone),
   ]);
+  // What today's drill practices; before it's made, a preview from the chapter or focus skills.
+  const rows = drill ? await drillProblems(drill.id) : [];
+  const chapter = book && book.book.currentChapter !== null ? book.chapters[book.book.currentChapter] : null;
+  const topics = drill ? drillTopics(rows, await drillLessonNames(rows))
+    : [
+      ...(chapter ? [{ name: chapter.title, fromBook: true }] : []),
+      ...parseFocus(student).map((id) => ({ name: SKILLS_BY_ID.get(id)!.name, fromBook: false })),
+    ];
   const nextQuiz = preps.find((p) => p.upcoming && p.status === "ready");
   const learning = stats.skills.filter((s) => !s.masteredAt);
   const nextReward = game.rewards.find((r) => !r.givenAt);
@@ -47,6 +58,7 @@ export default async function StudentHome() {
           <div className="text-4xl">{stats.doneToday ? "✅" : "🎯"}</div>
           <h2 className="mt-2 text-xl font-bold">{stats.doneToday ? "Today's drill is done!" : "Today's drill"}</h2>
           <p className="text-slate-600">{stats.doneToday ? "Great work. Come back tomorrow for a new set." : `${student.dailyProblems} problems · up to ${student.dailyProblems * 10 + 50} XP`}</p>
+          {topics.length > 0 && <div className="mt-3"><DrillTopics topics={topics} limit={6} /></div>}
         </Link>
         {student.aiEnabled && (
           <Link href="/student/homework" className="card block transition hover:-translate-y-0.5">
