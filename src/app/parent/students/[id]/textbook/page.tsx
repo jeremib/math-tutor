@@ -10,7 +10,7 @@ import { needsChapterPractice, parseLessonSkill, skillChoicesFor } from "@/lib/t
 import { TextbookForm } from "@/components/TextbookForm";
 import { RefreshWhilePending } from "@/components/TestPrep";
 import { PendingButton } from "@/components/PendingButton";
-import { removeTextbook, setChapterSkills, startChapter } from "./actions";
+import { removeTextbook, setChapterSkills, startChapter, writeTextbookProblems } from "./actions";
 
 export default async function TextbookPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -31,15 +31,21 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
   ]) : [[], []];
   // Written problems waiting per chapter, and results per lesson ("chapter:lesson").
   const waiting = new Map<number, number>();
+  const lessonWaiting = new Map<string, number>();
   for (const q of queued) {
     const at = parseLessonSkill(q.skillId);
-    if (at) waiting.set(at.chapter, (waiting.get(at.chapter) ?? 0) + q.n);
+    if (at) {
+      waiting.set(at.chapter, (waiting.get(at.chapter) ?? 0) + q.n);
+      lessonWaiting.set(`${at.chapter}:${at.lesson}`, q.n);
+    }
   }
   const results = new Map(answered.flatMap((a) => {
     const at = parseLessonSkill(a.skillId);
     return at && a.done ? [[`${at.chapter}:${at.lesson}`, a] as const] : [];
   }));
   const writing = !!book?.practiceRequestedAt;
+  const unstocked = book?.status === "ready" && student.aiEnabled
+    ? book.chapters.filter((c, i) => needsChapterPractice(c) && !waiting.get(i)).length : 0;
 
   const header = (
     <>
@@ -157,12 +163,22 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
             ) : (
               <p className="text-slate-700"><b>Pick the chapter {student.name}&apos;s class is on</b> and drills will follow it.</p>
             )}
+            {writing && unstocked > 0 && (
+              <p className="animate-pulse text-sm text-slate-600">Writing practice problems for the chapters no built-in skill covers… This takes a few minutes for a whole book.</p>
+            )}
+            {!writing && unstocked > 0 && (
+              <form action={writeTextbookProblems} className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200">
+                <input type="hidden" name="studentId" value={student.id} />
+                <p className="min-w-0 flex-1 text-sm text-amber-900">{plural(unstocked, "chapter")} {unstocked === 1 ? "has" : "have"} no practice problems yet.</p>
+                <PendingButton className="btn py-1.5 text-sm" pendingText="Starting…">Write problems for {unstocked === 1 ? "it" : "them"}</PendingButton>
+              </form>
+            )}
           </section>
 
           <ol className="space-y-3">
             {book.chapters.map((c, i) => (
               <ChapterRow key={i} index={i} chapter={c} current={i === current} studentId={student.id} aiEnabled={student.aiEnabled}
-                waiting={waiting.get(i) ?? 0} writing={writing && i === current} results={results} choices={choices} />
+                waiting={waiting.get(i) ?? 0} writing={writing && (i === current || !waiting.get(i))} results={results} lessonWaiting={lessonWaiting} choices={choices} />
             ))}
           </ol>
 
@@ -214,9 +230,9 @@ function CurrentPlan({ chapter, aiEnabled, waiting, writing }: { chapter: Textbo
   );
 }
 
-function ChapterRow({ index, chapter, current, studentId, aiEnabled, waiting, writing, results, choices }: {
+function ChapterRow({ index, chapter, current, studentId, aiEnabled, waiting, writing, results, lessonWaiting, choices }: {
   index: number; chapter: TextbookChapter; current: boolean; studentId: string; aiEnabled: boolean; waiting: number; writing: boolean;
-  results: Map<string, { done: number; right: number }>; choices: ReturnType<typeof skillChoicesFor>;
+  results: Map<string, { done: number; right: number }>; lessonWaiting: Map<string, number>; choices: ReturnType<typeof skillChoicesFor>;
 }) {
   const picked = new Set(chapter.skillIds);
   // Skills already on the chapter stay pickable even if they're outside the book's grade range.
@@ -257,10 +273,15 @@ function ChapterRow({ index, chapter, current, studentId, aiEnabled, waiting, wr
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-600">
             {chapter.lessons.map((l, j) => {
               const r = results.get(`${index}:${j}`);
+              const ready = lessonWaiting.get(`${index}:${j}`);
               return (
                 <li key={j}>
                   {l}
-                  {r && <span className="text-xs text-slate-400"> · {r.done} done, {Math.round((100 * r.right) / r.done)}% right first try</span>}
+                  {(ready || r) && (
+                    <span className="text-xs text-slate-400">
+                      {ready ? ` · ${ready} ready` : ""}{r ? ` · ${r.done} done, ${Math.round((100 * r.right) / r.done)}% right first try` : ""}
+                    </span>
+                  )}
                 </li>
               );
             })}

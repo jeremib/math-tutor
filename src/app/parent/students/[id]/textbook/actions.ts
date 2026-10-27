@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
-import { refillChapterPractice, textbookFor } from "@/lib/textbook";
+import { refillChapterPractice, textbookFor, writeStarterProblems } from "@/lib/textbook";
 import { MAX_CHAPTER_SKILLS, chapterFocus } from "@/lib/textbook-plan";
 
 async function familyTextbook(form: FormData) {
@@ -57,6 +57,14 @@ export async function setChapterSkills(form: FormData) {
   });
   if (book.currentChapter === index) await refillChapterPractice(student);
   refresh(student.id);
+}
+
+/** Writes problems for every chapter that needs them and has none yet, e.g. for a book set up before this existed. */
+export async function writeTextbookProblems(form: FormData) {
+  const found = await familyTextbook(form);
+  if (!found) return;
+  await writeStarterProblems(found.book.id);
+  refresh(found.student.id);
 }
 
 /** Removes the textbook and its unused practice problems. Focus skills stay until changed. */
