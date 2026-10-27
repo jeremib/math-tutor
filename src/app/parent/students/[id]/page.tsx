@@ -21,6 +21,7 @@ import { RefreshWhilePending, TestPrepForm } from "@/components/TestPrep";
 import { TestPrepList } from "@/components/TestPrepList";
 import { textbookFor, textbookProgress } from "@/lib/textbook";
 import { BookProgress } from "@/components/BookProgress";
+import { LoginLink } from "@/components/LoginLink";
 
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -67,6 +68,14 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <p className="text-slate-600">{GRADE_LABELS[student.grade]} · logs in as <b>@{student.username}</b> with family code <b>{family.code}</b></p>
         </div>
       </div>
+      <section className="card">
+        <h2 className="font-bold">🔗 Login link</h2>
+        <p className="mb-3 text-sm text-slate-500">
+          Opens the login page with the family code and username filled in, so {student.name} only types their PIN.
+          Bookmark it or add it to the home screen on {student.name}&apos;s device.
+        </p>
+        <LoginLink code={family.code} username={student.username} />
+      </section>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Day streak" value={`${stats.streak}🔥`} />
