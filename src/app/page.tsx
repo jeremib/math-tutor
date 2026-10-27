@@ -27,6 +27,7 @@ export default async function Home() {
       <HelperRules />
       <MistakeCoach />
       <ParentView />
+      <TextbookPlan />
       <Practice />
       <Setup />
 
@@ -275,6 +276,74 @@ function ParentView() {
   );
 }
 
+const TEXTBOOK_POINTS = [
+  ["Finds the chapters", "Type the book's title, or add a photo of the cover. Math Buddy looks up its table of contents online and matches each chapter to practice skills."],
+  ["Or reads your photos", "If a book can't be found online, take photos of the table of contents pages and Math Buddy reads the chapters from them."],
+  ["Fills the gaps", "For lessons the built-in skills don't cover, like measurement, Math Buddy writes practice problems and double-checks every answer."],
+  ["You stay in charge", "Move to the next chapter when the class does, and change which skills go with any chapter."],
+];
+
+const CHAPTERS = [
+  { title: "Place value and rounding", skills: ["Rounding"], state: "done" },
+  { title: "Multiply by 1-digit numbers", skills: ["Multi-digit × one digit"], state: "now" },
+  { title: "Divide by 1-digit numbers", skills: ["Division with remainders"], state: "next" },
+  { title: "Customary measurement", skills: [], state: "next" },
+] as const;
+
+function TextbookPlan() {
+  return (
+    <section className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-20 lg:grid-cols-2">
+      <div>
+        <p className="hand text-2xl text-brand-600">in step with school</p>
+        <h2 className="display mt-2 text-4xl font-extrabold leading-tight sm:text-5xl">Drills that follow their textbook.</h2>
+        <p className="mt-4 text-lg text-slate-600">
+          Tell Math Buddy which math book your child uses at school. Pick the chapter the class is on, and daily drills practice what they&rsquo;re learning this week.
+        </p>
+        <dl className="mt-8 space-y-5">
+          {TEXTBOOK_POINTS.map(([title, body]) => (
+            <div key={title}>
+              <dt className="display text-lg font-bold">{title}</dt>
+              <dd className="mt-1 text-slate-600">{body}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      <figure className="relative mx-auto w-full max-w-md" aria-label="Example textbook plan">
+        <div className="rounded-[28px] bg-white p-6 shadow-xl ring-1 ring-slate-200">
+          <p className="text-sm font-semibold text-slate-400">📖 Grade 4 Math · Student Edition</p>
+          <p className="display mt-1 text-2xl font-extrabold">Contents</p>
+          <ol className="mt-4 space-y-3">
+            {CHAPTERS.map((c, i) => (
+              <li key={c.title} className={`rounded-xl p-3 ${c.state === "now" ? "bg-brand-50 ring-2 ring-brand-500" : "ring-1 ring-slate-200"}`}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className={`font-bold ${c.state === "done" ? "text-slate-400" : ""}`}>
+                    <span className="display mr-2 text-slate-400">{i + 1}</span>{c.title}
+                  </p>
+                  {c.state === "now" && <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-brand-700">This week</span>}
+                  {c.state === "done" && <span className="shrink-0 text-sm text-emerald-600">✓</span>}
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5 pl-6">
+                  {c.skills.map((s) => (
+                    <span key={s} className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-brand-700 ring-1 ring-brand-100">{s}</span>
+                  ))}
+                  {!c.skills.length && <span className="rounded-full bg-[#fff6c7] px-2.5 py-0.5 text-xs font-semibold text-amber-800">Problems written for this chapter</span>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <div className="hand absolute -bottom-6 -left-2 -rotate-2 rounded-lg bg-[#fff6c7] px-4 py-2 text-xl shadow-md sm:-left-8">
+          can&rsquo;t find it? snap the contents page 📷
+        </div>
+        <figcaption className="sr-only">
+          A fourth-grade textbook&rsquo;s chapters, each matched to practice skills. Chapter 2 is this week&rsquo;s chapter, and the measurement chapter gets practice problems written for it.
+        </figcaption>
+      </figure>
+    </section>
+  );
+}
+
 const FRACTIONS_PATH = [
   { name: "Fractions of a group", state: "mastered" },
   { name: "Equivalent fractions", state: "mastered" },
@@ -334,7 +403,7 @@ function Practice() {
 
 const STEPS = [
   ["Create your family account", "Sign up as a parent. Another parent can join the same family."],
-  ["Add each child", "Choose a username and PIN, and set their grade. You can change their drill length and focus skills any time."],
+  ["Add each child", "Choose a username and PIN, and set their grade. Add their school textbook so drills follow along, or pick focus skills yourself."],
   ["Kids log in with your family code", "They enter a code like OWL-4821 with their username and PIN. No email needed."],
 ];
 
