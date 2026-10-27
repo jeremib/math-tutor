@@ -5,12 +5,12 @@ import { getDb, schema } from "@/db";
 import type { TextbookChapter } from "@/db/schema";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { GRADE_LABELS, SKILLS_BY_ID } from "@/lib/curriculum";
-import { textbookFor } from "@/lib/textbook";
+import { chaptersBeingWritten, textbookFor } from "@/lib/textbook";
 import { needsChapterPractice, parseLessonSkill, skillChoicesFor } from "@/lib/textbook-plan";
 import { TextbookForm } from "@/components/TextbookForm";
 import { RefreshWhilePending } from "@/components/TestPrep";
 import { PendingButton } from "@/components/PendingButton";
-import { removeTextbook, setChapterSkills, startChapter, writeTextbookProblems } from "./actions";
+import { removeTextbook, setChapterSkills, startChapter, writeChapterProblems } from "./actions";
 
 export default async function TextbookPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -43,9 +43,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
     const at = parseLessonSkill(a.skillId);
     return at && a.done ? [[`${at.chapter}:${at.lesson}`, a] as const] : [];
   }));
-  const writing = !!book?.practiceRequestedAt;
-  const unstocked = book?.status === "ready" && student.aiEnabled
-    ? book.chapters.filter((c, i) => needsChapterPractice(c) && !waiting.get(i)).length : 0;
+  const writing = book ? chaptersBeingWritten(book) : new Set<number>();
 
   const header = (
     <>
@@ -92,7 +90,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       {header}
-      <RefreshWhilePending pending={book.status === "pending" || writing} />
+      <RefreshWhilePending pending={book.status === "pending" || writing.size > 0} />
 
       <section className="card flex gap-4">
         {cover && (
@@ -149,7 +147,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
                 <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Working on now</p>
                 <p className="text-lg font-bold">{book.chapters[current].title}</p>
                 <p className="text-sm text-slate-600">
-                  <CurrentPlan chapter={book.chapters[current]} aiEnabled={student.aiEnabled} waiting={waiting.get(current) ?? 0} writing={writing} />
+                  <CurrentPlan chapter={book.chapters[current]} aiEnabled={student.aiEnabled} waiting={waiting.get(current) ?? 0} writing={writing.has(current)} />
                   {" "}If today&apos;s drill has already started, changes begin tomorrow.
                 </p>
                 {next !== null && (
@@ -163,22 +161,12 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
             ) : (
               <p className="text-slate-700"><b>Pick the chapter {student.name}&apos;s class is on</b> and drills will follow it.</p>
             )}
-            {writing && unstocked > 0 && (
-              <p className="animate-pulse text-sm text-slate-600">Writing practice problems for the chapters no built-in skill covers… This takes a few minutes for a whole book.</p>
-            )}
-            {!writing && unstocked > 0 && (
-              <form action={writeTextbookProblems} className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200">
-                <input type="hidden" name="studentId" value={student.id} />
-                <p className="min-w-0 flex-1 text-sm text-amber-900">{plural(unstocked, "chapter")} {unstocked === 1 ? "has" : "have"} no practice problems yet.</p>
-                <PendingButton className="btn py-1.5 text-sm" pendingText="Starting…">Write problems for {unstocked === 1 ? "it" : "them"}</PendingButton>
-              </form>
-            )}
           </section>
 
           <ol className="space-y-3">
             {book.chapters.map((c, i) => (
               <ChapterRow key={i} index={i} chapter={c} current={i === current} studentId={student.id} aiEnabled={student.aiEnabled}
-                waiting={waiting.get(i) ?? 0} writing={writing && (i === current || !waiting.get(i))} results={results} lessonWaiting={lessonWaiting} choices={choices} />
+                waiting={waiting.get(i) ?? 0} writing={writing.has(i)} results={results} lessonWaiting={lessonWaiting} choices={choices} />
             ))}
           </ol>
 
@@ -247,8 +235,19 @@ function ChapterRow({ index, chapter, current, studentId, aiEnabled, waiting, wr
           <h3 className="font-bold">{chapter.title}</h3>
           <p className="text-xs text-slate-500">
             {coverage}
-            {aiEnabled && needsChapterPractice(chapter) && (writing ? " · writing problems…" : waiting > 0 ? ` · ${plural(waiting, "problem")} ready` : "")}
+            {aiEnabled && needsChapterPractice(chapter) && waiting > 0 && ` · ${plural(waiting, "problem")} ready`}
           </p>
+          {aiEnabled && needsChapterPractice(chapter) && (writing ? (
+            <p className="mt-2 animate-pulse text-sm font-semibold text-brand-700">✍️ Writing problems for each lesson… about a minute.</p>
+          ) : (
+            <form action={writeChapterProblems} className="mt-2">
+              <input type="hidden" name="studentId" value={studentId} />
+              <input type="hidden" name="chapter" value={index} />
+              <PendingButton className="btn-secondary py-1 text-sm" pendingText="Starting…">
+                ✍️ {waiting > 0 ? "Write more problems" : "Write practice problems"}
+              </PendingButton>
+            </form>
+          ))}
         </div>
         {current ? (
           <span className="rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">Working on now</span>

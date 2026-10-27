@@ -5,8 +5,8 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
-import { refillChapterPractice, textbookFor, writeStarterProblems } from "@/lib/textbook";
-import { MAX_CHAPTER_SKILLS, chapterFocus } from "@/lib/textbook-plan";
+import { refillChapterPractice, startWritingChapter, textbookFor } from "@/lib/textbook";
+import { MAX_CHAPTER_SKILLS, chapterFocus, needsChapterPractice } from "@/lib/textbook-plan";
 
 async function familyTextbook(form: FormData) {
   const { family } = await requireParent();
@@ -59,11 +59,13 @@ export async function setChapterSkills(form: FormData) {
   refresh(student.id);
 }
 
-/** Writes problems for every chapter that needs them and has none yet, e.g. for a book set up before this existed. */
-export async function writeTextbookProblems(form: FormData) {
+/** Has Claude write practice problems for one chapter's lessons. */
+export async function writeChapterProblems(form: FormData) {
   const found = await familyTextbook(form);
-  if (!found) return;
-  await writeStarterProblems(found.book.id);
+  const index = Number(form.get("chapter"));
+  const chapter = found?.book.chapters[index];
+  if (!found || !chapter || !found.student.aiEnabled || !needsChapterPractice(chapter)) return;
+  await startWritingChapter(found.book.id, index);
   refresh(found.student.id);
 }
 

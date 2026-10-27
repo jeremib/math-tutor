@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, desc, eq, isNull, like, lt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, like, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
@@ -98,12 +98,6 @@ ${MATCH_RULES}`,
       chapters,
       note: result?.note.trim().slice(0, 500) || null,
     }).where(eq(schema.textbooks.id, book.id));
-    if (chapters.length && student.aiEnabled) {
-      // Already running after the response, so the starter problems are written right here.
-      const [ready] = await db.select().from(schema.textbooks).where(eq(schema.textbooks.id, book.id));
-      const missing = ready ? await chaptersMissingProblems(ready) : [];
-      if (missing.length && (await claimWriting(book.id))) await writeChapters(book.id, missing);
-    }
   } catch (error) {
     console.error("textbook lookup failed", error);
     await db.update(schema.textbooks).set({
@@ -118,9 +112,7 @@ ${MATCH_RULES}`,
 const PER_LESSON = 3;
 const MAX_BATCH = 24;
 /** Writing that hasn't finished in this long is assumed lost, and another run may start. */
-const STALE_REQUEST_MS = 30 * 60_000;
-/** Chapters written at once when filling a whole book. */
-const PARALLEL_CHAPTERS = 3;
+const STALE_REQUEST_MS = 15 * 60_000;
 
 /** How the student has done on each lesson's written problems so far. */
 async function lessonResults(textbookId: string, chapterIndex: number) {
@@ -137,7 +129,7 @@ async function lessonResults(textbookId: string, chapterIndex: number) {
 
 /**
  * Writes checked practice problems for each lesson of a chapter, for the parts the curriculum's
- * skills don't cover. Runs when the book is set up, and again whenever the current chapter runs low.
+ * skills don't cover. Runs when a parent asks, and again whenever the current chapter runs low.
  */
 async function writeChapterProblems(textbookId: string, chapterIndex: number) {
   const db = await getDb();
@@ -195,56 +187,40 @@ ${PRACTICE_RULES}
   }
 }
 
-/** Claims the book's writing slot, so only one run writes problems at a time. */
-async function claimWriting(textbookId: string) {
+/** Marks a chapter as being written, so the same chapter isn't written twice at once. False if it already is. */
+async function claimChapter(textbookId: string, chapterIndex: number) {
+  const key = String(chapterIndex);
+  const stale = new Date(Date.now() - STALE_REQUEST_MS).toISOString();
   const db = await getDb();
-  const [claimed] = await db.update(schema.textbooks).set({ practiceRequestedAt: new Date() })
-    .where(and(eq(schema.textbooks.id, textbookId), or(isNull(schema.textbooks.practiceRequestedAt), lt(schema.textbooks.practiceRequestedAt, new Date(Date.now() - STALE_REQUEST_MS)))))
+  const [claimed] = await db.update(schema.textbooks)
+    .set({ writingChapters: sql`${schema.textbooks.writingChapters} || jsonb_build_object(${key}::text, ${new Date().toISOString()}::text)` })
+    .where(and(eq(schema.textbooks.id, textbookId),
+      sql`(not ${schema.textbooks.writingChapters} ? ${key} or ${schema.textbooks.writingChapters} ->> ${key} < ${stale})`))
     .returning({ id: schema.textbooks.id });
   return !!claimed;
 }
 
-async function releaseWriting(textbookId: string) {
-  await (await getDb()).update(schema.textbooks).set({ practiceRequestedAt: null }).where(eq(schema.textbooks.id, textbookId));
-}
-
-/** Writes problems for each given chapter, a few at a time, then frees the writing slot. Call after claimWriting. */
-async function writeChapters(textbookId: string, chapterIndexes: number[]) {
-  try {
-    const queue = [...chapterIndexes];
-    await Promise.all(Array.from({ length: PARALLEL_CHAPTERS }, async () => {
-      for (let i = queue.shift(); i !== undefined; i = queue.shift()) {
-        await writeChapterProblems(textbookId, i).catch((error) => console.error(`textbook practice failed for chapter ${i}`, error));
-      }
-    }));
-  } finally {
-    await releaseWriting(textbookId);
-  }
-}
-
-/** Chapters that need written problems and don't have any waiting yet. */
-async function chaptersMissingProblems(book: typeof schema.textbooks.$inferSelect) {
-  const db = await getDb();
-  const rows = await db.select({ skillId: schema.practiceProblems.skillId }).from(schema.practiceProblems)
-    .where(and(eq(schema.practiceProblems.textbookId, book.id), isNull(schema.practiceProblems.usedAt)));
-  const stocked = new Set(rows.map((r) => parseLessonSkill(r.skillId)?.chapter));
-  return book.chapters.flatMap((c, i) => (needsChapterPractice(c) && !stocked.has(i) ? [i] : []));
-}
-
-/**
- * Writes a first set of problems for every chapter that needs them, so they're ready whichever
- * chapter the parent picks. Call from a request; the writing runs after the response.
- */
-export async function writeStarterProblems(textbookId: string) {
-  const db = await getDb();
-  const [found] = await db.select({ book: schema.textbooks, student: schema.students })
-    .from(schema.textbooks).innerJoin(schema.students, eq(schema.students.id, schema.textbooks.studentId))
-    .where(eq(schema.textbooks.id, textbookId));
-  if (!found || found.book.status !== "ready" || !found.student.aiEnabled) return false;
-  const chapters = await chaptersMissingProblems(found.book);
-  if (!chapters.length || !(await claimWriting(textbookId))) return false;
-  after(() => writeChapters(textbookId, chapters));
+/** Writes a chapter's problems after the response, if it isn't already being written. Call from a request. */
+export async function startWritingChapter(textbookId: string, chapterIndex: number) {
+  if (!(await claimChapter(textbookId, chapterIndex))) return false;
+  after(async () => {
+    try {
+      await writeChapterProblems(textbookId, chapterIndex);
+    } catch (error) {
+      console.error(`textbook practice failed for chapter ${chapterIndex}`, error);
+    } finally {
+      await (await getDb()).update(schema.textbooks)
+        .set({ writingChapters: sql`${schema.textbooks.writingChapters} - ${String(chapterIndex)}::text` })
+        .where(eq(schema.textbooks.id, textbookId));
+    }
+  });
   return true;
+}
+
+/** Chapters being written right now (ignoring runs that look lost). */
+export function chaptersBeingWritten(book: typeof schema.textbooks.$inferSelect): Set<number> {
+  const cutoff = Date.now() - STALE_REQUEST_MS;
+  return new Set(Object.entries(book.writingChapters).filter(([, at]) => Date.parse(at) > cutoff).map(([i]) => Number(i)));
 }
 
 /** Unused written problems for a chapter, waiting for drills. */
@@ -267,7 +243,7 @@ export async function refillChapterPractice(student: typeof schema.students.$inf
   const chapter = index !== null ? book!.chapters[index] : undefined;
   if (!book || index === null || !chapter || !needsChapterPractice(chapter)) return;
   if ((await chapterWaiting(book.id, index)) >= refillBelow(student.dailyProblems, chapter.skillIds.length > 0)) return;
-  if (await claimWriting(book.id)) after(() => writeChapters(book.id, [index]));
+  await startWritingChapter(book.id, index);
 }
 
 export async function textbookFor(studentId: string) {

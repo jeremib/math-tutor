@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   ];
   const values = {
     title, publisher: data.publisher || existing?.publisher || null, images,
-    status: "pending" as const, chapters: [], currentChapter: null, practiceRequestedAt: null, note: null, source: null, sources: [],
+    status: "pending" as const, chapters: [], currentChapter: null, writingChapters: {}, note: null, source: null, sources: [],
   };
 
   const db = await getDb();
