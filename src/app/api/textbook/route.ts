@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { TextbookImage } from "@/db/schema";
@@ -50,10 +51,15 @@ export async function POST(req: Request) {
   ];
   const values = {
     title, publisher: data.publisher || existing?.publisher || null, images,
-    status: "pending" as const, chapters: [], currentChapter: null, practiceChapters: [], note: null, source: null, sources: [],
+    status: "pending" as const, chapters: [], currentChapter: null, practiceRequestedAt: null, note: null, source: null, sources: [],
   };
 
   const db = await getDb();
+  // A new chapter list makes the old list's unused problems meaningless.
+  if (existing) {
+    await db.delete(schema.practiceProblems)
+      .where(and(eq(schema.practiceProblems.textbookId, existing.id), isNull(schema.practiceProblems.usedAt)));
+  }
   const [book] = await db.insert(schema.textbooks).values({ studentId: student.id, ...values })
     .onConflictDoUpdate({ target: schema.textbooks.studentId, set: values }).returning();
   // Searching the web or reading the photos takes a little while, so it runs after the response.

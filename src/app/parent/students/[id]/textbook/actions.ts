@@ -1,13 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
-import { buildChapterPractice, textbookFor } from "@/lib/textbook";
-import { MAX_CHAPTER_SKILLS, chapterFocus, needsChapterPractice } from "@/lib/textbook-plan";
+import { refillChapterPractice, textbookFor } from "@/lib/textbook";
+import { MAX_CHAPTER_SKILLS, chapterFocus } from "@/lib/textbook-plan";
 
 async function familyTextbook(form: FormData) {
   const { family } = await requireParent();
@@ -21,7 +20,7 @@ const refresh = (studentId: string) => {
   revalidatePath(`/parent/students/${studentId}`);
 };
 
-/** Points drills at a chapter: its skills become the focus, and Claude writes problems for what they don't cover. */
+/** Points drills at a chapter: its skills become the focus, and Claude writes problems for its lessons that they don't cover. */
 export async function startChapter(form: FormData) {
   const found = await familyTextbook(form);
   const index = Number(form.get("chapter"));
@@ -29,15 +28,11 @@ export async function startChapter(form: FormData) {
   if (!found || !chapter) return;
   const { student, book } = found;
   const db = await getDb();
-  const writePractice = student.aiEnabled && needsChapterPractice(chapter) && !book.practiceChapters.includes(index);
   await db.transaction(async (tx) => {
-    await tx.update(schema.textbooks).set({
-      currentChapter: index,
-      ...(writePractice ? { practiceChapters: [...book.practiceChapters, index] } : {}),
-    }).where(eq(schema.textbooks.id, book.id));
+    await tx.update(schema.textbooks).set({ currentChapter: index }).where(eq(schema.textbooks.id, book.id));
     await tx.update(schema.students).set({ focusSkills: chapterFocus(chapter) }).where(eq(schema.students.id, student.id));
   });
-  if (writePractice) after(() => buildChapterPractice(book.id, index));
+  await refillChapterPractice(student);
   refresh(student.id);
 }
 
@@ -60,6 +55,7 @@ export async function setChapterSkills(form: FormData) {
       await tx.update(schema.students).set({ focusSkills: chapterFocus(chapters[index]) }).where(eq(schema.students.id, student.id));
     }
   });
+  if (book.currentChapter === index) await refillChapterPractice(student);
   refresh(student.id);
 }
 

@@ -9,6 +9,8 @@ import {
   type SkillState,
 } from "./progress";
 import { RESOLVE_AFTER, choosePractice, mixIntoDrill } from "./practice";
+import { refillChapterPractice, textbookFor } from "./textbook";
+import { chapterSkillPrefix, spreadByLesson, textbookShare } from "./textbook-plan";
 
 type Student = typeof schema.students.$inferSelect;
 /** A connection or an open transaction. */
@@ -63,7 +65,13 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
   const [existing] = await db.select().from(schema.drills).where(where);
   if (existing) return existing;
 
-  return db.transaction(async (tx) => {
+  // Drills follow the textbook chapter the class is on, if the parent picked one.
+  const book = await textbookFor(student.id);
+  const chapter = book?.status === "ready" && book.currentChapter !== null ? book.chapters[book.currentChapter] : undefined;
+  const chapterPrefix = chapter ? chapterSkillPrefix(book!.id, book!.currentChapter!) : null;
+
+  let created = false;
+  const result = await db.transaction(async (tx) => {
     await unlockNext(student.id, tx);
     const focus = parseFocus(student);
     // Focus skills are practiced even if the curriculum hasn't reached them yet.
@@ -77,17 +85,21 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
       .onConflictDoNothing().returning();
     if (!drill) return (await tx.select().from(schema.drills).where(where))[0];
 
-    // Practice problems Claude wrote (from missed answers, solved homework and quiz prep) take some of the slots.
+    created = true;
+    // Practice problems Claude wrote (from missed answers, solved homework, quiz prep and the textbook) take some of the slots.
     const queued = await tx.select({ p: schema.practiceProblems, quizDate: schema.testPreps.quizDate }).from(schema.practiceProblems)
       .leftJoin(schema.testPreps, eq(schema.testPreps.id, schema.practiceProblems.testPrepId))
       .where(and(eq(schema.practiceProblems.studentId, student.id), isNull(schema.practiceProblems.usedAt)))
       .orderBy(asc(schema.testPreps.quizDate), asc(schema.practiceProblems.createdAt)).limit(100);
     // Quiz problems only count until the quiz; nulls (non-quiz practice) sort last above.
     const quiz = queued.filter((q) => q.quizDate && q.quizDate >= date).map((q) => q.p);
-    const other = queued.filter((q) => !q.p.testPrepId).map((q) => q.p);
+    const lessons = queued.filter((q) => chapterPrefix && q.p.skillId.startsWith(chapterPrefix)).map((q) => q.p);
+    const other = queued.filter((q) => !q.p.testPrepId && !lessons.includes(q.p)).map((q) => q.p);
     const daysToQuiz = quiz.length ? Math.round((Date.parse(queued.find((q) => q.quizDate && q.quizDate >= date)!.quizDate!) - Date.parse(date)) / 86_400_000) : 0;
-    const slots = choosePractice(skills.length, quiz.length, daysToQuiz, other.length);
-    const practice = [...quiz.slice(0, slots.quiz), ...other.slice(0, slots.other)];
+    // The current chapter's lessons go first: most of the drill when no built-in skill covers the chapter.
+    const lessonCount = textbookShare(skills.length, lessons.length, !!chapter?.skillIds.length);
+    const slots = choosePractice(skills.length - lessonCount, quiz.length, daysToQuiz, other.length);
+    const practice = [...spreadByLesson(lessons).slice(0, lessonCount), ...quiz.slice(0, slots.quiz), ...other.slice(0, slots.other)];
 
     const rand = seededRandom(Date.now() ^ student.id.charCodeAt(0));
     const curriculum = skills.map((skillId) => {
@@ -111,6 +123,9 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
     }
     return drill;
   });
+  // Today's drill used up some of the chapter's problems; write more if it's running low.
+  if (created) await refillChapterPractice(student);
+  return result;
 }
 
 export async function drillProblems(drillId: string, tx?: Tx) {

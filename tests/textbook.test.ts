@@ -28,3 +28,30 @@ test("chapterFocus and skill choices", () => {
   const grades = new Set(skillChoicesFor(4).map((s) => s.grade));
   assert.deepEqual([...grades].sort(), [3, 4, 5]);
 });
+
+import { chapterLessons, lessonSkillId, parseLessonSkill, refillBelow, spreadByLesson, textbookShare } from "../src/lib/textbook-plan.ts";
+
+test("lesson skill ids round-trip", () => {
+  const id = lessonSkillId("abc-123", 12, 3);
+  assert.equal(id, "tb:abc-123:12:3");
+  assert.deepEqual(parseLessonSkill(id), { textbookId: "abc-123", chapter: 12, lesson: 3 });
+  assert.equal(parseLessonSkill("g4-decimals"), null);
+});
+
+test("a chapter without lessons is practiced as one lesson", () => {
+  assert.deepEqual(chapterLessons({ title: "Ch 2", lessons: [], skillIds: [], coverage: "none" }), ["Ch 2"]);
+});
+
+test("written problems fill most of a drill only when no built-in skill fits", () => {
+  assert.equal(textbookShare(8, 20, false), 6);
+  assert.equal(textbookShare(8, 20, true), 2);
+  assert.equal(textbookShare(8, 3, false), 3);
+  assert.equal(textbookShare(8, 0, false), 0);
+  assert.equal(refillBelow(8, false), 12);
+  assert.equal(refillBelow(8, true), 4);
+});
+
+test("spreadByLesson alternates lessons", () => {
+  const ps = ["a", "a", "a", "b", "c", "c"].map((skillId, i) => ({ skillId, i }));
+  assert.deepEqual(spreadByLesson(ps).map((p) => p.skillId), ["a", "b", "c", "a", "c", "a"]);
+});

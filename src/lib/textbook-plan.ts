@@ -41,3 +41,45 @@ export function needsChapterPractice(chapter: TextbookChapter): boolean {
 export function skillChoicesFor(grade: number) {
   return SKILLS.filter((s) => Math.abs(s.grade - grade) <= 1);
 }
+
+/**
+ * Claude-written problems for a textbook lesson are filed under a skill id like
+ * "tb:<textbook id>:<chapter>:<lesson>", so each lesson's progress can be tracked.
+ */
+export const lessonSkillId = (textbookId: string, chapter: number, lesson: number) => `tb:${textbookId}:${chapter}:${lesson}`;
+export const chapterSkillPrefix = (textbookId: string, chapter: number) => `tb:${textbookId}:${chapter}:`;
+
+export function parseLessonSkill(skillId: string): { textbookId: string; chapter: number; lesson: number } | null {
+  const m = /^tb:([^:]+):(\d+):(\d+)$/.exec(skillId);
+  return m ? { textbookId: m[1], chapter: Number(m[2]), lesson: Number(m[3]) } : null;
+}
+
+/** The lessons problems are written for; a chapter with none listed is one lesson. */
+export function chapterLessons(chapter: TextbookChapter): string[] {
+  return (chapter.lessons.length ? chapter.lessons : [chapter.title]).slice(0, MAX_LESSONS);
+}
+
+/**
+ * How many of a drill's problems come from the current chapter's written problems. With no built-in
+ * skills for the chapter they're most of the drill; otherwise they share it, like other practice.
+ */
+export function textbookShare(count: number, available: number, chapterHasSkills: boolean): number {
+  if (available <= 0 || count <= 0) return 0;
+  const want = chapterHasSkills ? Math.max(1, Math.floor(count / 3)) : Math.round(count * 0.7);
+  return Math.min(available, want);
+}
+
+/** Time to write more once fewer than this many are left: about two drills' worth. */
+export function refillBelow(dailyProblems: number, chapterHasSkills: boolean): number {
+  return 2 * textbookShare(dailyProblems, Infinity, chapterHasSkills);
+}
+
+/** Takes problems one lesson at a time in turn, so a drill mixes the chapter's lessons. */
+export function spreadByLesson<P extends { skillId: string }>(problems: P[]): P[] {
+  const byLesson = new Map<string, P[]>();
+  for (const p of problems) byLesson.set(p.skillId, [...(byLesson.get(p.skillId) ?? []), p]);
+  const queues = [...byLesson.values()];
+  const out: P[] = [];
+  while (out.length < problems.length) for (const q of queues) if (q.length) out.push(q.shift()!);
+  return out;
+}

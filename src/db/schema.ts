@@ -302,8 +302,8 @@ export const textbooks = pgTable("textbooks", {
   chapters: jsonb("chapters").$type<TextbookChapter[]>().notNull().default([]),
   /** Index into chapters of what the class is working on now. */
   currentChapter: integer("current_chapter"),
-  /** Chapters that already have practice problems written for them. */
-  practiceChapters: jsonb("practice_chapters").$type<number[]>().notNull().default([]),
+  /** Set while Claude is writing problems for the current chapter, so only one batch runs at a time. */
+  practiceRequestedAt: timestamp("practice_requested_at", { withTimezone: true }),
   /** Claude's note to the parent about the lookup. */
   note: text("note"),
   createdAt: createdAt(),

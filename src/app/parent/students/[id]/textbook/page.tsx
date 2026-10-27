@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, count, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull, like, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { TextbookChapter } from "@/db/schema";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { GRADE_LABELS, SKILLS_BY_ID } from "@/lib/curriculum";
 import { textbookFor } from "@/lib/textbook";
-import { needsChapterPractice, skillChoicesFor } from "@/lib/textbook-plan";
+import { needsChapterPractice, parseLessonSkill, skillChoicesFor } from "@/lib/textbook-plan";
 import { TextbookForm } from "@/components/TextbookForm";
 import { RefreshWhilePending } from "@/components/TestPrep";
 import { PendingButton } from "@/components/PendingButton";
@@ -19,8 +19,27 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
   if (!student) notFound();
   const book = await textbookFor(student.id);
   const db = await getDb();
-  const [waiting] = book ? await db.select({ n: count() }).from(schema.practiceProblems)
-    .where(and(eq(schema.practiceProblems.textbookId, book.id), isNull(schema.practiceProblems.usedAt))) : [{ n: 0 }];
+  const [queued, answered] = book ? await Promise.all([
+    db.select({ skillId: schema.practiceProblems.skillId, n: count() }).from(schema.practiceProblems)
+      .where(and(eq(schema.practiceProblems.textbookId, book.id), isNull(schema.practiceProblems.usedAt)))
+      .groupBy(schema.practiceProblems.skillId),
+    db.select({
+      skillId: schema.drillProblems.skillId,
+      done: sql<number>`count(*) filter (where ${schema.drillProblems.solved} is not null)`.mapWith(Number),
+      right: sql<number>`count(*) filter (where ${schema.drillProblems.firstTryCorrect})`.mapWith(Number),
+    }).from(schema.drillProblems).where(like(schema.drillProblems.skillId, `tb:${book.id}:%`)).groupBy(schema.drillProblems.skillId),
+  ]) : [[], []];
+  // Written problems waiting per chapter, and results per lesson ("chapter:lesson").
+  const waiting = new Map<number, number>();
+  for (const q of queued) {
+    const at = parseLessonSkill(q.skillId);
+    if (at) waiting.set(at.chapter, (waiting.get(at.chapter) ?? 0) + q.n);
+  }
+  const results = new Map(answered.flatMap((a) => {
+    const at = parseLessonSkill(a.skillId);
+    return at && a.done ? [[`${at.chapter}:${at.lesson}`, a] as const] : [];
+  }));
+  const writing = !!book?.practiceRequestedAt;
 
   const header = (
     <>
@@ -67,7 +86,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       {header}
-      <RefreshWhilePending pending={book.status === "pending"} />
+      <RefreshWhilePending pending={book.status === "pending" || writing} />
 
       <section className="card flex gap-4">
         {cover && (
@@ -124,8 +143,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
                 <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Working on now</p>
                 <p className="text-lg font-bold">{book.chapters[current].title}</p>
                 <p className="text-sm text-slate-600">
-                  {book.chapters[current].skillIds.length ? "Its skills make up most of each drill" : "Drills keep to the regular skill path"}
-                  {waiting.n > 0 ? `, with ${waiting.n} textbook problem${waiting.n === 1 ? "" : "s"} waiting to be mixed in.` : "."}
+                  <CurrentPlan chapter={book.chapters[current]} aiEnabled={student.aiEnabled} waiting={waiting.get(current) ?? 0} writing={writing} />
                   {" "}If today&apos;s drill has already started, changes begin tomorrow.
                 </p>
                 {next !== null && (
@@ -144,7 +162,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
           <ol className="space-y-3">
             {book.chapters.map((c, i) => (
               <ChapterRow key={i} index={i} chapter={c} current={i === current} studentId={student.id} aiEnabled={student.aiEnabled}
-                written={book.practiceChapters.includes(i)} choices={choices} />
+                waiting={waiting.get(i) ?? 0} writing={writing && i === current} results={results} choices={choices} />
             ))}
           </ol>
 
@@ -172,13 +190,33 @@ function hostOf(url: string) {
 
 const COVERAGE = {
   full: "Drills cover this chapter",
-  partial: "Drills cover part of it; Math Buddy writes problems for the rest",
-  none: "Math Buddy writes problems for this chapter",
+  partial: "Drills cover part of it; Math Buddy writes problems for the other lessons",
+  none: "No built-in skills match; Math Buddy writes problems for each lesson",
 } as const;
 
-function ChapterRow({ index, chapter, current, studentId, aiEnabled, written, choices }: {
-  index: number; chapter: TextbookChapter; current: boolean; studentId: string; aiEnabled: boolean; written: boolean;
-  choices: ReturnType<typeof skillChoicesFor>;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** What daily drills do while this chapter is the current one. */
+function CurrentPlan({ chapter, aiEnabled, waiting, writing }: { chapter: TextbookChapter; aiEnabled: boolean; waiting: number; writing: boolean }) {
+  const hasSkills = chapter.skillIds.length > 0;
+  if (!needsChapterPractice(chapter)) return <>Its skills make up most of each drill.</>;
+  if (!aiEnabled) {
+    return <>{hasSkills ? "Its skills make up most of each drill." : "Drills keep to the regular skill path."} Turn on the AI tutor to get problems written for its lessons.</>;
+  }
+  return (
+    <>
+      {hasSkills
+        ? "Its skills make up most of each drill, along with problems Math Buddy writes for its other lessons."
+        : "Math Buddy writes problems for each of its lessons, and they make up most of each drill."}
+      {writing ? " Writing more problems now…" : waiting > 0 ? ` ${plural(waiting, "problem")} ready.` : ""}
+      {" "}More are written as they&apos;re used up, a little harder or easier depending on how it&apos;s going.
+    </>
+  );
+}
+
+function ChapterRow({ index, chapter, current, studentId, aiEnabled, waiting, writing, results, choices }: {
+  index: number; chapter: TextbookChapter; current: boolean; studentId: string; aiEnabled: boolean; waiting: number; writing: boolean;
+  results: Map<string, { done: number; right: number }>; choices: ReturnType<typeof skillChoicesFor>;
 }) {
   const picked = new Set(chapter.skillIds);
   // Skills already on the chapter stay pickable even if they're outside the book's grade range.
@@ -191,7 +229,10 @@ function ChapterRow({ index, chapter, current, studentId, aiEnabled, written, ch
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="font-bold">{chapter.title}</h3>
-          <p className="text-xs text-slate-500">{coverage}{written && needsChapterPractice(chapter) && aiEnabled ? " · problems written" : ""}</p>
+          <p className="text-xs text-slate-500">
+            {coverage}
+            {aiEnabled && needsChapterPractice(chapter) && (writing ? " · writing problems…" : waiting > 0 ? ` · ${plural(waiting, "problem")} ready` : "")}
+          </p>
         </div>
         {current ? (
           <span className="rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">Working on now</span>
@@ -211,10 +252,18 @@ function ChapterRow({ index, chapter, current, studentId, aiEnabled, written, ch
         </div>
       )}
       {chapter.lessons.length > 0 && (
-        <details className="mt-2 text-sm">
-          <summary className="cursor-pointer text-slate-500">{chapter.lessons.length} lesson{chapter.lessons.length === 1 ? "" : "s"}</summary>
+        <details className="mt-2 text-sm" open={current}>
+          <summary className="cursor-pointer text-slate-500">{plural(chapter.lessons.length, "lesson")}</summary>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-600">
-            {chapter.lessons.map((l, j) => <li key={j}>{l}</li>)}
+            {chapter.lessons.map((l, j) => {
+              const r = results.get(`${index}:${j}`);
+              return (
+                <li key={j}>
+                  {l}
+                  {r && <span className="text-xs text-slate-400"> · {r.done} done, {Math.round((100 * r.right) / r.done)}% right first try</span>}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}
@@ -231,7 +280,7 @@ function ChapterRow({ index, chapter, current, studentId, aiEnabled, written, ch
               </label>
             ))}
           </div>
-          <p className="text-xs text-slate-500">Up to 4. Leave all unchecked if none fit.</p>
+          <p className="text-xs text-slate-500">Up to 4. Leave all unchecked if none fit; lessons these don&apos;t cover get problems written for them.</p>
           <PendingButton className="btn-secondary py-1.5 text-sm" pendingText="Saving…">Save skills</PendingButton>
         </form>
       </details>
