@@ -302,6 +302,8 @@ export const textbooks = pgTable("textbooks", {
   chapters: jsonb("chapters").$type<TextbookChapter[]>().notNull().default([]),
   /** Index into chapters of what the class is working on now. */
   currentChapter: integer("current_chapter"),
+  /** Lesson in the current chapter the class is on; earlier lessons are skipped. Null is the start of the chapter. */
+  currentLesson: integer("current_lesson"),
   /** Chapters Claude is writing problems for now (chapter index → start time), so each runs once at a time. */
   writingChapters: jsonb("writing_chapters").$type<Record<string, string>>().notNull().default({}),
   /** Claude's note to the parent about the lookup. */

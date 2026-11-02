@@ -1,0 +1,1 @@
+ALTER TABLE "textbooks" ADD COLUMN "current_lesson" integer;

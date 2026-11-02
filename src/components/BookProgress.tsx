@@ -17,8 +17,8 @@ export function BookProgress({ progress, forStudent }: { progress: Progress; for
     { label: "Earlier chapters", chapters: indexed.slice(0, at).reverse() },
   ];
   const items = current ? [
-    ...current.lessons.map((l) => ({ id: l.skillId, name: l.title, progress: l.progress })),
-    ...current.skills.map((s) => ({ id: s.skillId, name: SKILLS_BY_ID.get(s.skillId)?.name ?? s.skillId, progress: s.progress })),
+    ...current.lessons.map((l) => ({ id: l.skillId, name: l.title, progress: l.progress, skipped: l.skipped, here: l.current })),
+    ...current.skills.map((s) => ({ id: s.skillId, name: SKILLS_BY_ID.get(s.skillId)?.name ?? s.skillId, progress: s.progress, skipped: false, here: false })),
   ] : [];
 
   return (
@@ -31,11 +31,11 @@ export function BookProgress({ progress, forStudent }: { progress: Progress; for
           </div>
           <ul className="mt-3 space-y-2.5">
             {items.map((i) => (
-              <li key={i.id}>
+              <li key={i.id} className={i.skipped ? "opacity-50" : ""}>
                 <div className="mb-1 flex justify-between gap-3 text-sm">
-                  <span className="font-semibold">{i.name} {i.progress?.mastered ? "⭐" : ""}</span>
+                  <span className={`font-semibold ${i.here ? "text-brand-700" : ""}`}>{i.here ? "👉 " : ""}{i.name} {i.progress?.mastered ? "⭐" : ""}</span>
                   <span className="shrink-0 text-slate-500">
-                    {!i.progress?.attempts ? (forStudent ? "Coming up" : "Not started") : i.progress.mastered ? "Mastered" : pct(i.progress.mastery)}
+                    {i.skipped ? "Skipped" : !i.progress?.attempts ? (i.here ? "Now" : forStudent ? "Coming up" : "Not started") : i.progress.mastered ? "Mastered" : pct(i.progress.mastery)}
                   </span>
                 </div>
                 <MasteryBar value={i.progress?.mastered ? 1 : i.progress?.mastery ?? 0} mastered={!!i.progress?.mastered} />

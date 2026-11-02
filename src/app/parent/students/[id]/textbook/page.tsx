@@ -6,7 +6,7 @@ import type { TextbookChapter } from "@/db/schema";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { GRADE_LABELS, SKILLS_BY_ID } from "@/lib/curriculum";
 import { chaptersBeingWritten, textbookFor } from "@/lib/textbook";
-import { needsChapterPractice, parseLessonSkill, skillChoicesFor } from "@/lib/textbook-plan";
+import { chapterLessons, needsChapterPractice, parseLessonSkill, skillChoicesFor } from "@/lib/textbook-plan";
 import { TextbookForm } from "@/components/TextbookForm";
 import { RefreshWhilePending } from "@/components/TestPrep";
 import { PendingButton } from "@/components/PendingButton";
@@ -85,6 +85,10 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
   const cover = book.images.find((i) => i.kind === "cover");
   const current = book.currentChapter;
   const next = current !== null && current + 1 < book.chapters.length ? current + 1 : null;
+  // Lessons are only tracked (and skippable) in chapters Claude writes problems for.
+  const currentLessons = current !== null && needsChapterPractice(book.chapters[current]) ? chapterLessons(book.chapters[current]) : [];
+  const lessonAt = book.currentLesson ?? 0;
+  const nextLesson = lessonAt + 1 < currentLessons.length ? lessonAt + 1 : null;
   const choices = skillChoicesFor(book.grade ?? student.grade);
 
   return (
@@ -146,17 +150,32 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
               <>
                 <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Working on now</p>
                 <p className="text-lg font-bold">{book.chapters[current].title}</p>
+                {currentLessons.length > 1 && (
+                  <p className="text-sm font-semibold text-brand-700">
+                    👉 {currentLessons[lessonAt]}{lessonAt > 0 ? ` · skipping ${plural(lessonAt, "earlier lesson")}` : ""}
+                  </p>
+                )}
                 <p className="text-sm text-slate-600">
                   <CurrentPlan chapter={book.chapters[current]} aiEnabled={student.aiEnabled} waiting={waiting.get(current) ?? 0} writing={writing.has(current)} />
                   {" "}If today&apos;s drill has already started, changes begin tomorrow.
                 </p>
-                {next !== null && (
-                  <form action={startChapter}>
-                    <input type="hidden" name="studentId" value={student.id} />
-                    <input type="hidden" name="chapter" value={next} />
-                    <PendingButton className="btn mt-2" pendingText="Moving on…">Move on to {book.chapters[next].title} →</PendingButton>
-                  </form>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {nextLesson !== null && (
+                    <form action={startChapter}>
+                      <input type="hidden" name="studentId" value={student.id} />
+                      <input type="hidden" name="chapter" value={current} />
+                      <input type="hidden" name="lesson" value={nextLesson} />
+                      <PendingButton className="btn mt-2" pendingText="Moving on…">Next lesson: {currentLessons[nextLesson]} →</PendingButton>
+                    </form>
+                  )}
+                  {next !== null && (
+                    <form action={startChapter}>
+                      <input type="hidden" name="studentId" value={student.id} />
+                      <input type="hidden" name="chapter" value={next} />
+                      <PendingButton className={`${nextLesson !== null ? "btn-secondary" : "btn"} mt-2`} pendingText="Moving on…">Move on to {book.chapters[next].title} →</PendingButton>
+                    </form>
+                  )}
+                </div>
               </>
             ) : (
               <p className="text-slate-700"><b>Pick the chapter {student.name}&apos;s class is on</b> and drills will follow it.</p>
@@ -165,7 +184,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
 
           <ol className="space-y-3">
             {book.chapters.map((c, i) => (
-              <ChapterRow key={i} index={i} chapter={c} current={i === current} studentId={student.id} aiEnabled={student.aiEnabled}
+              <ChapterRow key={i} index={i} chapter={c} current={i === current} lessonAt={i === current ? lessonAt : null} studentId={student.id} aiEnabled={student.aiEnabled}
                 waiting={waiting.get(i) ?? 0} writing={writing.has(i)} results={results} lessonWaiting={lessonWaiting} choices={choices} />
             ))}
           </ol>
@@ -218,8 +237,8 @@ function CurrentPlan({ chapter, aiEnabled, waiting, writing }: { chapter: Textbo
   );
 }
 
-function ChapterRow({ index, chapter, current, studentId, aiEnabled, waiting, writing, results, lessonWaiting, choices }: {
-  index: number; chapter: TextbookChapter; current: boolean; studentId: string; aiEnabled: boolean; waiting: number; writing: boolean;
+function ChapterRow({ index, chapter, current, lessonAt, studentId, aiEnabled, waiting, writing, results, lessonWaiting, choices }: {
+  index: number; chapter: TextbookChapter; current: boolean; lessonAt: number | null; studentId: string; aiEnabled: boolean; waiting: number; writing: boolean;
   results: Map<string, { done: number; right: number }>; lessonWaiting: Map<string, number>; choices: ReturnType<typeof skillChoicesFor>;
 }) {
   const picked = new Set(chapter.skillIds);
@@ -273,13 +292,23 @@ function ChapterRow({ index, chapter, current, studentId, aiEnabled, waiting, wr
             {chapter.lessons.map((l, j) => {
               const r = results.get(`${index}:${j}`);
               const ready = lessonWaiting.get(`${index}:${j}`);
+              const here = lessonAt !== null && j === lessonAt && chapter.lessons.length > 1;
+              const skipped = lessonAt !== null && j < lessonAt;
               return (
-                <li key={j}>
-                  {l}
+                <li key={j} className={here ? "font-semibold text-brand-700" : skipped ? "text-slate-400" : ""}>
+                  {here ? "👉 " : ""}{l}{skipped ? " · skipped" : ""}
                   {(ready || r) && (
                     <span className="text-xs text-slate-400">
                       {ready ? ` · ${ready} ready` : ""}{r ? ` · ${r.done} done, ${Math.round((100 * r.right) / r.done)}% right first try` : ""}
                     </span>
+                  )}
+                  {needsChapterPractice(chapter) && chapter.lessons.length > 1 && !here && (
+                    <form action={startChapter} className="inline">
+                      <input type="hidden" name="studentId" value={studentId} />
+                      <input type="hidden" name="chapter" value={index} />
+                      <input type="hidden" name="lesson" value={j} />
+                      <PendingButton className="ml-2 text-xs font-semibold text-brand-600 hover:underline" pendingText="Starting…">Start here</PendingButton>
+                    </form>
                   )}
                 </li>
               );

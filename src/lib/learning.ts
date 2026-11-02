@@ -10,7 +10,7 @@ import {
 } from "./progress";
 import { RESOLVE_AFTER, choosePractice, mixIntoDrill } from "./practice";
 import { lessonTitles, refillChapterPractice, textbookFor } from "./textbook";
-import { chapterSkillPrefix, parseLessonSkill, spreadByLesson, textbookShare } from "./textbook-plan";
+import { chapterSkillPrefix, fromLesson, parseLessonSkill, spreadByLesson, textbookShare } from "./textbook-plan";
 
 type Student = typeof schema.students.$inferSelect;
 /** A connection or an open transaction. */
@@ -98,8 +98,10 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
       .orderBy(asc(schema.testPreps.quizDate), asc(schema.practiceProblems.createdAt)).limit(100);
     // Quiz problems only count until the quiz; nulls (non-quiz practice) sort last above.
     const quiz = queued.filter((q) => q.quizDate && q.quizDate >= date).map((q) => q.p);
-    const lessons = queued.filter((q) => chapterPrefix && q.p.skillId.startsWith(chapterPrefix)).map((q) => q.p);
-    const other = queued.filter((q) => !q.p.testPrepId && !lessons.includes(q.p)).map((q) => q.p);
+    // Lessons before the class's current one were skipped; their leftover problems wait in case the parent goes back.
+    const lessons = queued.filter((q) => chapterPrefix && q.p.skillId.startsWith(chapterPrefix)).map((q) => q.p)
+      .filter((p) => fromLesson(p.skillId, book?.currentLesson ?? 0));
+    const other = queued.filter((q) => !q.p.testPrepId && !(chapterPrefix && q.p.skillId.startsWith(chapterPrefix))).map((q) => q.p);
     const daysToQuiz = quiz.length ? Math.round((Date.parse(queued.find((q) => q.quizDate && q.quizDate >= date)!.quizDate!) - Date.parse(date)) / 86_400_000) : 0;
     // The current chapter's lessons go first: most of the drill when no built-in skill covers the chapter.
     const lessonCount = textbookShare(skills.length, lessons.length, !!chapter?.skillIds.length);

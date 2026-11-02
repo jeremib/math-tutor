@@ -9,7 +9,7 @@ import { askStructured, imageBlock, researchWeb } from "./ai";
 import { PRACTICE_RULES, PracticeSchema, checkedPractice } from "./coach";
 import { readUpload, type ImageType } from "./tutor";
 import {
-  MAX_CHAPTERS, MAX_CHAPTER_SKILLS, chapterLessons, chapterProgress, chapterSkillPrefix, cleanChapters, lessonSkillId, needsChapterPractice,
+  MAX_CHAPTERS, MAX_CHAPTER_SKILLS, chapterLessons, chapterProgress, chapterSkillPrefix, cleanChapters, fromLesson, lessonSkillId, needsChapterPractice,
   parseLessonSkill, refillBelow, type ItemProgress,
 } from "./textbook-plan";
 
@@ -142,6 +142,8 @@ async function writeChapterProblems(textbookId: string, chapterIndex: number) {
   const { book, student } = found;
   const lessons = chapterLessons(chapter);
   const prefix = chapterSkillPrefix(book.id, chapterIndex);
+  // When the class has moved on within the current chapter, only its remaining lessons get problems.
+  const start = book.currentChapter === chapterIndex ? Math.min(book.currentLesson ?? 0, lessons.length - 1) : 0;
 
   const [results, earlier] = await Promise.all([
     lessonResults(book.id, chapterIndex),
@@ -150,7 +152,8 @@ async function writeChapterProblems(textbookId: string, chapterIndex: number) {
       .orderBy(desc(schema.practiceProblems.createdAt)).limit(40),
   ]);
   const covered = chapter.skillIds.map((id) => SKILLS_BY_ID.get(id)?.name).filter(Boolean);
-  const lessonLines = lessons.map((l, i) => {
+  const lessonLines = lessons.flatMap((l, i) => {
+    if (i < start) return [];
     const r = results.get(i);
     return `${i}. ${l}${r?.done ? ` (answered ${r.done}, ${Math.round((100 * r.right) / r.done)}% right on the first try)` : ""}`;
   });
@@ -175,7 +178,7 @@ ${PRACTICE_RULES}
       earlier.length ? `Earlier problems (don't repeat):\n${earlier.map((e) => `- ${e.prompt}`).join("\n")}` : "",
     ].filter(Boolean).join("\n\n") }],
   });
-  const drafts = (result?.problems ?? []).filter((p) => p.lesson >= 0 && p.lesson < lessons.length).slice(0, MAX_BATCH);
+  const drafts = (result?.problems ?? []).filter((p) => p.lesson >= start && p.lesson < lessons.length).slice(0, MAX_BATCH);
   const kept = await checkedPractice(drafts);
   // The parent may have replaced the chapter list while Claude was writing.
   const [latest] = await db.select({ chapters: schema.textbooks.chapters }).from(schema.textbooks).where(eq(schema.textbooks.id, book.id));
@@ -225,12 +228,14 @@ export function chaptersBeingWritten(book: typeof schema.textbooks.$inferSelect)
 }
 
 /** Unused written problems for a chapter, waiting for drills. */
-export async function chapterWaiting(textbookId: string, chapterIndex: number) {
+/** Unused problems for a chapter, counting only the lessons from startLesson on. */
+export async function chapterWaiting(textbookId: string, chapterIndex: number, startLesson = 0) {
   const db = await getDb();
-  const [row] = await db.select({ n: count() }).from(schema.practiceProblems)
+  const rows = await db.select({ skillId: schema.practiceProblems.skillId, n: count() }).from(schema.practiceProblems)
     .where(and(eq(schema.practiceProblems.textbookId, textbookId), isNull(schema.practiceProblems.usedAt),
-      like(schema.practiceProblems.skillId, `${chapterSkillPrefix(textbookId, chapterIndex)}%`)));
-  return row?.n ?? 0;
+      like(schema.practiceProblems.skillId, `${chapterSkillPrefix(textbookId, chapterIndex)}%`)))
+    .groupBy(schema.practiceProblems.skillId);
+  return rows.filter((r) => fromLesson(r.skillId, startLesson)).reduce((n, r) => n + r.n, 0);
 }
 
 /**
@@ -243,7 +248,7 @@ export async function refillChapterPractice(student: typeof schema.students.$inf
   const index = book?.status === "ready" ? book.currentChapter : null;
   const chapter = index !== null ? book!.chapters[index] : undefined;
   if (!book || index === null || !chapter || !needsChapterPractice(chapter)) return;
-  if ((await chapterWaiting(book.id, index)) >= refillBelow(student.dailyProblems, chapter.skillIds.length > 0)) return;
+  if ((await chapterWaiting(book.id, index, book.currentLesson ?? 0)) >= refillBelow(student.dailyProblems, chapter.skillIds.length > 0)) return;
   await startWritingChapter(book.id, index);
 }
 
@@ -260,7 +265,10 @@ export async function textbookProgress(studentId: string) {
   const db = await getDb();
   const rows = await db.select().from(schema.studentSkills).where(eq(schema.studentSkills.studentId, studentId));
   const states = new Map<string, ItemProgress>(rows.map((r) => [r.skillId, { mastery: r.mastery, attempts: r.attempts, mastered: r.masteredAt !== null }]));
-  return { book, chapters: book.chapters.map((c, i) => ({ ...c, ...chapterProgress(book.id, i, c, states) })) };
+  return {
+    book,
+    chapters: book.chapters.map((c, i) => ({ ...c, ...chapterProgress(book.id, i, c, states, i === book.currentChapter ? book.currentLesson ?? 0 : 0) })),
+  };
 }
 
 /** Lesson titles for lesson skill ids, for messages and reports. Pass a transaction when inside one. */

@@ -29,7 +29,7 @@ test("chapterFocus and skill choices", () => {
   assert.deepEqual([...grades].sort(), [3, 4, 5]);
 });
 
-import { chapterLessons, lessonSkillId, parseLessonSkill, refillBelow, spreadByLesson, textbookShare } from "../src/lib/textbook-plan.ts";
+import { chapterLessons, fromLesson, lessonSkillId, parseLessonSkill, refillBelow, spreadByLesson, textbookShare } from "../src/lib/textbook-plan.ts";
 
 test("lesson skill ids round-trip", () => {
   const id = lessonSkillId("abc-123", 12, 3);
@@ -73,4 +73,16 @@ test("chapterProgress tracks skills, and lessons when Claude writes problems for
   assert.equal(full.lessons.length, 0);
   assert.equal(full.done, true);
   assert.equal(chapterProgress("b1", 5, partial, new Map()).started, false);
+});
+
+test("skipping ahead leaves earlier lessons out of drills and progress", () => {
+  assert.equal(fromLesson(lessonSkillId("b", 1, 0), 2), false);
+  assert.equal(fromLesson(lessonSkillId("b", 1, 3), 2), true);
+  const ch = { title: "Ch", lessons: ["A", "B", "C"], skillIds: [], coverage: "none" as const };
+  const p = chapterProgress("b", 0, ch, new Map([[lessonSkillId("b", 0, 2), { mastery: 0.6, attempts: 3, mastered: false }]]), 1);
+  assert.deepEqual(p.lessons.map((l) => [l.skipped, l.current]), [[true, false], [false, true], [false, false]]);
+  assert.equal(p.percent, 0.6 / 2);
+  // Later lessons come first in a drill only after the current one.
+  const ps = [2, 2, 1].map((l) => ({ skillId: lessonSkillId("b", 0, l) }));
+  assert.deepEqual(spreadByLesson(ps).map((x) => parseLessonSkill(x.skillId)!.lesson), [1, 2, 2]);
 });

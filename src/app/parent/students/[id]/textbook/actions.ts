@@ -6,7 +6,7 @@ import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
 import { clearLessonProgress, refillChapterPractice, startWritingChapter, textbookFor } from "@/lib/textbook";
-import { MAX_CHAPTER_SKILLS, chapterFocus, needsChapterPractice } from "@/lib/textbook-plan";
+import { MAX_CHAPTER_SKILLS, chapterFocus, chapterLessons, needsChapterPractice } from "@/lib/textbook-plan";
 
 async function familyTextbook(form: FormData) {
   const { family } = await requireParent();
@@ -20,16 +20,21 @@ const refresh = (studentId: string) => {
   revalidatePath(`/parent/students/${studentId}`);
 };
 
-/** Points drills at a chapter: its skills become the focus, and Claude writes problems for its lessons that they don't cover. */
+/**
+ * Points drills at a chapter, and optionally a lesson in it to skip ahead to: its skills become the focus,
+ * and Claude writes problems for the lessons they don't cover.
+ */
 export async function startChapter(form: FormData) {
   const found = await familyTextbook(form);
   const index = Number(form.get("chapter"));
   const chapter = found?.book.chapters[index];
   if (!found || !chapter) return;
   const { student, book } = found;
+  const lesson = Number(form.get("lesson") ?? 0);
+  const currentLesson = Number.isInteger(lesson) && lesson > 0 && lesson < chapterLessons(chapter).length ? lesson : null;
   const db = await getDb();
   await db.transaction(async (tx) => {
-    await tx.update(schema.textbooks).set({ currentChapter: index }).where(eq(schema.textbooks.id, book.id));
+    await tx.update(schema.textbooks).set({ currentChapter: index, currentLesson }).where(eq(schema.textbooks.id, book.id));
     await tx.update(schema.students).set({ focusSkills: chapterFocus(chapter) }).where(eq(schema.students.id, student.id));
   });
   await refillChapterPractice(student);

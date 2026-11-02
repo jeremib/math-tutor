@@ -74,11 +74,17 @@ export function refillBelow(dailyProblems: number, chapterHasSkills: boolean): n
   return 2 * textbookShare(dailyProblems, Infinity, chapterHasSkills);
 }
 
-/** Takes problems one lesson at a time in turn, so a drill mixes the chapter's lessons. */
+/** Whether a lesson problem is for the class's current lesson or a later one. Earlier lessons were skipped. */
+export function fromLesson(skillId: string, start: number): boolean {
+  return (parseLessonSkill(skillId)?.lesson ?? 0) >= start;
+}
+
+/** Takes problems one lesson at a time in turn, earliest lesson first, so a drill mixes the chapter's lessons. */
 export function spreadByLesson<P extends { skillId: string }>(problems: P[]): P[] {
   const byLesson = new Map<string, P[]>();
   for (const p of problems) byLesson.set(p.skillId, [...(byLesson.get(p.skillId) ?? []), p]);
-  const queues = [...byLesson.values()];
+  const lessonOf = (q: P[]) => parseLessonSkill(q[0].skillId)?.lesson ?? 0;
+  const queues = [...byLesson.values()].sort((a, b) => lessonOf(a) - lessonOf(b));
   const out: P[] = [];
   while (out.length < problems.length) for (const q of queues) if (q.length) out.push(q.shift()!);
   return out;
@@ -90,7 +96,7 @@ export type ChapterProgress = {
   /** The chapter's built-in drill skills. */
   skills: { skillId: string; progress: ItemProgress | null }[];
   /** Lessons tracked through written problems; empty when the skills cover the whole chapter. */
-  lessons: { title: string; skillId: string; progress: ItemProgress | null }[];
+  lessons: { title: string; skillId: string; progress: ItemProgress | null; skipped: boolean; current: boolean }[];
   /** 0–1: mastered items count fully, others by their mastery. */
   percent: number;
   started: boolean;
@@ -98,15 +104,17 @@ export type ChapterProgress = {
 };
 
 /** How far a student is through a chapter, from their skill and lesson mastery. */
-export function chapterProgress(textbookId: string, index: number, chapter: TextbookChapter, rows: Map<string, ItemProgress>): ChapterProgress {
+export function chapterProgress(textbookId: string, index: number, chapter: TextbookChapter, rows: Map<string, ItemProgress>, startLesson = 0): ChapterProgress {
   const skills = chapter.skillIds.map((skillId) => ({ skillId, progress: rows.get(skillId) ?? null }));
   const lessons = needsChapterPractice(chapter)
     ? chapterLessons(chapter).map((title, j) => {
       const skillId = lessonSkillId(textbookId, index, j);
-      return { title, skillId, progress: rows.get(skillId) ?? null };
+      const progress = rows.get(skillId) ?? null;
+      // Lessons the parent skipped past don't count against the chapter, unless they were practiced anyway.
+      return { title, skillId, progress, skipped: j < startLesson && !progress?.attempts, current: startLesson > 0 && j === startLesson };
     })
     : [];
-  const items = [...skills, ...lessons].map((i) => i.progress);
+  const items = [...skills, ...lessons.filter((l) => !l.skipped)].map((i) => i.progress);
   const value = (p: ItemProgress | null) => (!p ? 0 : p.mastered ? 1 : p.mastery);
   return {
     skills, lessons,
