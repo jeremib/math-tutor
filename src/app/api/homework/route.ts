@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { getStudent } from "@/lib/auth";
-import { saveImageField, tutorReply, TutorUnavailableError } from "@/lib/tutor";
+import { saveImageField, tutorReply, TutorUnavailableError, type ImageType } from "@/lib/tutor";
 
 /** Starts a homework session from a photo and/or typed problem, and returns the tutor's first message. */
 export async function POST(req: Request) {
@@ -12,15 +13,24 @@ export async function POST(req: Request) {
 
   const form = await req.formData();
   const text = String(form.get("text") ?? "").trim().slice(0, 2000);
-  const image = await saveImageField(form, "image");
+  const db = await getDb();
+  const photoFrom = String(form.get("photoFrom") ?? "");
+  let image = await saveImageField(form, "image");
   if (image && "error" in image) return NextResponse.json({ error: image.error }, { status: 400 });
+  if (!image && photoFrom) {
+    // Reuse the photo from an earlier session, e.g. a whole page with several problems.
+    const [earlier] = await db.select({ imagePath: schema.homeworkSessions.imagePath, imageType: schema.homeworkSessions.imageType })
+      .from(schema.homeworkSessions)
+      .where(and(eq(schema.homeworkSessions.id, photoFrom), eq(schema.homeworkSessions.studentId, student.id), isNotNull(schema.homeworkSessions.imagePath)));
+    if (!earlier) return NextResponse.json({ error: "That photo isn't available anymore. Take a new one." }, { status: 400 });
+    image = { imagePath: earlier.imagePath!, imageType: earlier.imageType as ImageType };
+  }
   if (!text && !image) return NextResponse.json({ error: "Add a photo or type your problem." }, { status: 400 });
   const hasImage = !!image;
   const imagePath = image?.imagePath ?? null;
   const imageType = image?.imageType ?? null;
 
   const title = text ? text.split("\n")[0].slice(0, 80) : `Photo problem · ${new Date().toLocaleDateString()}`;
-  const db = await getDb();
   const [hw] = await db.insert(schema.homeworkSessions).values({ studentId: student.id, title, problemText: text || null, imagePath, imageType }).returning();
 
   const opening = hasImage

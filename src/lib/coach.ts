@@ -171,6 +171,9 @@ async function runDiagnosis(studentId: string, grade: number, problem: DrillProb
 }
 
 const HomeworkPracticeSchema = z.object({
+  problem: z.string().describe(
+    "The exact problem the student worked on, typed out word for word as it appears in the photo or messages. If the photo has several problems, only the one they solved. Plain text; write math like 3/4 or x^2.",
+  ),
   skillId: z.enum(["none", ...SKILLS.map((s) => s.id)]).describe(
     "The curriculum skill this problem practices most. none if nothing in the list fits.",
   ),
@@ -219,11 +222,12 @@ ${PRACTICE_RULES}`,
       ...transcript.flatMap((m) => typeof m.content === "string"
         ? [{ type: "text" as const, text: `${m.role === "user" ? "Student" : "Tutor"}: ${m.content}` }]
         : (m.content ?? []).map((b) => (b.type === "text" ? { ...b, text: `${m.role === "user" ? "Student" : "Tutor"}: ${b.text}` } : b))),
-      { type: "text", text: "Now pick the skill and write the practice problems." },
+      { type: "text", text: "Now type out the problem, pick the skill and write the practice problems." },
     ],
   });
+  const problemStatement = result?.problem.trim().slice(0, 2000) || null;
   if (!result || result.skillId === "none") {
-    await db.update(schema.homeworkSessions).set({ skillId: "none" }).where(eq(schema.homeworkSessions.id, sessionId));
+    await db.update(schema.homeworkSessions).set({ skillId: "none", problemStatement }).where(eq(schema.homeworkSessions.id, sessionId));
     return;
   }
   const practice = (await checkedPractice(result.problems)).slice(0, 3);
@@ -233,7 +237,7 @@ ${PRACTICE_RULES}`,
         ...p, studentId: student.id, source: "homework" as const, homeworkSessionId: sessionId, skillId: result.skillId,
       })));
     }
-    await tx.update(schema.homeworkSessions).set({ skillId: result.skillId, practiceAdded: practice.length })
+    await tx.update(schema.homeworkSessions).set({ skillId: result.skillId, practiceAdded: practice.length, problemStatement })
       .where(eq(schema.homeworkSessions.id, sessionId));
   });
 }

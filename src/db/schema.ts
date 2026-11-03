@@ -116,6 +116,8 @@ export const homeworkSessions = pgTable("homework_sessions", {
   studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   problemText: text("problem_text"),
+  /** The problem typed out by Claude once it was solved, so it can be shown without the photo. */
+  problemStatement: text("problem_statement"),
   imagePath: text("image_path"),
   imageType: text("image_type"),
   status: text("status", { enum: ["active", "solved"] }).notNull().default("active"),
