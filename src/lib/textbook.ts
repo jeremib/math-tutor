@@ -9,8 +9,8 @@ import { askStructured, imageBlock, researchWeb } from "./ai";
 import { PRACTICE_RULES, PracticeSchema, checkedPractice } from "./coach";
 import { readUpload, type ImageType } from "./tutor";
 import {
-  MAX_CHAPTERS, MAX_CHAPTER_SKILLS, chapterLessons, chapterProgress, chapterSkillPrefix, cleanChapters, fromLesson, lessonSkillId, needsChapterPractice,
-  parseLessonSkill, refillBelow, type ItemProgress,
+  MAX_CHAPTERS, MAX_CHAPTER_SKILLS, chapterLessons, chapterProgress, chapterSkillPrefix, cleanChapters, inLesson, lessonSkillId, needsChapterPractice,
+  needsSkillLessons, parseLessonSkill, refillBelow, type ItemProgress,
 } from "./textbook-plan";
 
 
@@ -111,6 +111,8 @@ ${MATCH_RULES}`,
 
 /** Problems written per lesson in one batch, before checking. */
 const PER_LESSON = 3;
+/** Problems written for the class's current lesson in one batch: drills mostly practice it. */
+const PER_CURRENT_LESSON = 12;
 const MAX_BATCH = 24;
 /** Writing that hasn't finished in this long is assumed lost, and another run may start. */
 const STALE_REQUEST_MS = 15 * 60_000;
@@ -142,8 +144,11 @@ async function writeChapterProblems(textbookId: string, chapterIndex: number) {
   const { book, student } = found;
   const lessons = chapterLessons(chapter);
   const prefix = chapterSkillPrefix(book.id, chapterIndex);
-  // When the class has moved on within the current chapter, only its remaining lessons get problems.
-  const start = book.currentChapter === chapterIndex ? Math.min(book.currentLesson ?? 0, lessons.length - 1) : 0;
+  // For the class's current chapter, only the current lesson gets problems: earlier lessons are reviewed
+  // from problems already answered, and later ones are written once the class gets there.
+  const isCurrent = book.currentChapter === chapterIndex;
+  const start = isCurrent ? Math.min(book.currentLesson ?? 0, lessons.length - 1) : 0;
+  const end = isCurrent ? start : lessons.length - 1;
 
   const [results, earlier] = await Promise.all([
     lessonResults(book.id, chapterIndex),
@@ -153,7 +158,7 @@ async function writeChapterProblems(textbookId: string, chapterIndex: number) {
   ]);
   const covered = chapter.skillIds.map((id) => SKILLS_BY_ID.get(id)?.name).filter(Boolean);
   const lessonLines = lessons.flatMap((l, i) => {
-    if (i < start) return [];
+    if (i < start || i > end) return [];
     const r = results.get(i);
     return `${i}. ${l}${r?.done ? ` (answered ${r.done}, ${Math.round((100 * r.right) / r.done)}% right on the first try)` : ""}`;
   });
@@ -167,7 +172,9 @@ ${PRACTICE_RULES}
 - don't repeat earlier problems.`,
     schema: z.object({
       problems: z.array(PracticeSchema.extend({ lesson: z.number().int().describe("The lesson's number from the list.") }))
-        .describe(`About ${PER_LESSON} problems per lesson, easiest first within each lesson.`),
+        .describe(isCurrent
+          ? `About ${PER_CURRENT_LESSON} problems for the lesson, easiest first, covering each kind of problem it teaches.`
+          : `About ${PER_LESSON} problems per lesson, easiest first within each lesson.`),
     }),
     effort: "medium",
     content: [{ type: "text", text: [
@@ -178,7 +185,7 @@ ${PRACTICE_RULES}
       earlier.length ? `Earlier problems (don't repeat):\n${earlier.map((e) => `- ${e.prompt}`).join("\n")}` : "",
     ].filter(Boolean).join("\n\n") }],
   });
-  const drafts = (result?.problems ?? []).filter((p) => p.lesson >= start && p.lesson < lessons.length).slice(0, MAX_BATCH);
+  const drafts = (result?.problems ?? []).filter((p) => p.lesson >= start && p.lesson <= end).slice(0, MAX_BATCH);
   const kept = await checkedPractice(drafts);
   // The parent may have replaced the chapter list while Claude was writing.
   const [latest] = await db.select({ chapters: schema.textbooks.chapters }).from(schema.textbooks).where(eq(schema.textbooks.id, book.id));
@@ -227,19 +234,18 @@ export function chaptersBeingWritten(book: typeof schema.textbooks.$inferSelect)
   return new Set(Object.entries(book.writingChapters).filter(([, at]) => Date.parse(at) > cutoff).map(([i]) => Number(i)));
 }
 
-/** Unused written problems for a chapter, waiting for drills. */
-/** Unused problems for a chapter, counting only the lessons from startLesson on. */
-export async function chapterWaiting(textbookId: string, chapterIndex: number, startLesson = 0) {
+/** Unused written problems for one lesson, waiting for drills. */
+async function lessonWaiting(textbookId: string, chapterIndex: number, lesson: number) {
   const db = await getDb();
   const rows = await db.select({ skillId: schema.practiceProblems.skillId, n: count() }).from(schema.practiceProblems)
     .where(and(eq(schema.practiceProblems.textbookId, textbookId), isNull(schema.practiceProblems.usedAt),
       like(schema.practiceProblems.skillId, `${chapterSkillPrefix(textbookId, chapterIndex)}%`)))
     .groupBy(schema.practiceProblems.skillId);
-  return rows.filter((r) => fromLesson(r.skillId, startLesson)).reduce((n, r) => n + r.n, 0);
+  return rows.filter((r) => inLesson(r.skillId, chapterIndex, lesson)).reduce((n, r) => n + r.n, 0);
 }
 
 /**
- * Starts writing more problems for the student's current chapter if it needs them and its supply
+ * Starts writing more problems for the student's current lesson if it needs them and its supply
  * is running low. Call from a request; the writing runs after the response.
  */
 export async function refillChapterPractice(student: typeof schema.students.$inferSelect) {
@@ -248,8 +254,60 @@ export async function refillChapterPractice(student: typeof schema.students.$inf
   const index = book?.status === "ready" ? book.currentChapter : null;
   const chapter = index !== null ? book!.chapters[index] : undefined;
   if (!book || index === null || !chapter || !needsChapterPractice(chapter)) return;
-  if ((await chapterWaiting(book.id, index, book.currentLesson ?? 0)) >= refillBelow(student.dailyProblems, chapter.skillIds.length > 0)) return;
+  if ((await lessonWaiting(book.id, index, book.currentLesson ?? 0)) >= refillBelow(student.dailyProblems, chapter.skillIds.length > 0)) return;
   await startWritingChapter(book.id, index);
+}
+
+/**
+ * Works out which lesson of a chapter first teaches each of its curriculum skills, so drills don't
+ * practice a skill before the class reaches its lesson.
+ */
+export async function placeChapterSkills(textbookId: string, chapterIndex: number) {
+  const db = await getDb();
+  const [book] = await db.select().from(schema.textbooks).where(eq(schema.textbooks.id, textbookId));
+  const chapter = book?.chapters[chapterIndex];
+  if (!book || !chapter || !needsSkillLessons(chapter)) return;
+  const lessons = chapterLessons(chapter);
+  const result = await askStructured({
+    system: "You match a math textbook chapter's lessons to curriculum skills. For each skill, give the number of the first lesson that teaches it, or -1 if none of the lessons do.",
+    schema: z.object({
+      skills: z.array(z.object({ skillId: z.enum(chapter.skillIds as [string, ...string[]]), lesson: z.number().int() })),
+    }),
+    effort: "low",
+    content: [{ type: "text", text: [
+      `Chapter: ${chapter.title}`,
+      `Lessons:\n${lessons.map((l, i) => `${i}. ${l}`).join("\n")}`,
+      `Skills:\n${chapter.skillIds.map((id) => `- ${id}: ${SKILLS_BY_ID.get(id)?.name ?? id}. ${SKILLS_BY_ID.get(id)?.description ?? ""}`).join("\n")}`,
+    ].join("\n\n") }],
+  });
+  if (!result) return;
+  const skillLessons: Record<string, number> = {};
+  for (const id of chapter.skillIds) {
+    const lesson = result.skills.find((s) => s.skillId === id)?.lesson ?? -1;
+    skillLessons[id] = Number.isInteger(lesson) && lesson >= 0 && lesson < lessons.length ? lesson : -1;
+  }
+  // Re-read so a parent's edit made meanwhile isn't overwritten; skip if the chapter's skills changed.
+  await db.transaction(async (tx) => {
+    const [latest] = await tx.select({ chapters: schema.textbooks.chapters }).from(schema.textbooks).where(eq(schema.textbooks.id, textbookId));
+    const now = latest?.chapters[chapterIndex];
+    if (!now || now.title !== chapter.title || now.skillIds.join() !== chapter.skillIds.join()) return;
+    const chapters = latest.chapters.map((c, i) => (i === chapterIndex ? { ...c, skillLessons } : c));
+    await tx.update(schema.textbooks).set({ chapters }).where(eq(schema.textbooks.id, textbookId));
+  });
+}
+
+/** Places the current chapter's skills into its lessons after the response, if that hasn't been done. Call from a request. */
+export function startPlacingSkills(book: typeof schema.textbooks.$inferSelect) {
+  const index = book.currentChapter;
+  const chapter = index !== null ? book.chapters[index] : undefined;
+  if (index === null || !chapter || !needsSkillLessons(chapter)) return;
+  after(async () => {
+    try {
+      await placeChapterSkills(book.id, index);
+    } catch (error) {
+      console.error(`placing skills failed for chapter ${index}`, error);
+    }
+  });
 }
 
 export async function textbookFor(studentId: string) {

@@ -4,7 +4,7 @@ import { getDb, schema } from "@/db";
 import { getParent, getStudent } from "@/lib/auth";
 import { readUpload } from "@/lib/tutor";
 
-/** Finds the student an uploaded file belongs to: a homework photo, a work drawing, a study guide or a textbook photo. */
+/** Finds the student an uploaded file belongs to: a homework photo (or one sent from a phone), a work drawing, a study guide or a textbook photo. */
 async function owner(file: string): Promise<{ studentId: string; familyId: string; type: string } | null> {
   const db = await getDb();
   const s = schema;
@@ -18,6 +18,10 @@ async function owner(file: string): Promise<{ studentId: string; familyId: strin
     .innerJoin(s.students, eq(s.students.id, s.homeworkSessions.studentId))
     .where(eq(s.homeworkMessages.imagePath, file));
   if (message) return { ...message, type: message.type ?? "application/octet-stream" };
+  const [phone] = await db.select({ studentId: s.students.id, familyId: s.students.familyId, type: s.photoHandoffs.imageType })
+    .from(s.photoHandoffs).innerJoin(s.students, eq(s.students.id, s.photoHandoffs.studentId))
+    .where(eq(s.photoHandoffs.imagePath, file));
+  if (phone) return { ...phone, type: phone.type ?? "application/octet-stream" };
   const [drill] = await db.select({ studentId: s.students.id, familyId: s.students.familyId })
     .from(s.drillProblems)
     .innerJoin(s.drills, eq(s.drills.id, s.drillProblems.drillId))

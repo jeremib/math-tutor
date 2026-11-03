@@ -29,7 +29,7 @@ test("chapterFocus and skill choices", () => {
   assert.deepEqual([...grades].sort(), [3, 4, 5]);
 });
 
-import { chapterLessons, fromLesson, lessonSkillId, parseLessonSkill, refillBelow, spreadByLesson, textbookShare } from "../src/lib/textbook-plan.ts";
+import { beforeLesson, chapterLessons, inLesson, laterLessonSkills, needsSkillLessons, lessonSkillId, parseLessonSkill, refillBelow, splitLessonSlots, spreadByLesson, textbookShare } from "../src/lib/textbook-plan.ts";
 
 test("lesson skill ids round-trip", () => {
   const id = lessonSkillId("abc-123", 12, 3);
@@ -44,16 +44,32 @@ test("a chapter without lessons is practiced as one lesson", () => {
 
 test("written problems fill most of a drill only when no built-in skill fits", () => {
   assert.equal(textbookShare(8, 20, false), 6);
-  assert.equal(textbookShare(8, 20, true), 2);
+  assert.equal(textbookShare(10, 20, false), 8);
+  assert.equal(textbookShare(8, 20, true), 4);
   assert.equal(textbookShare(8, 3, false), 3);
   assert.equal(textbookShare(8, 0, false), 0);
   assert.equal(refillBelow(8, false), 12);
-  assert.equal(refillBelow(8, true), 4);
+  assert.equal(refillBelow(8, true), 8);
 });
 
-test("spreadByLesson alternates lessons", () => {
-  const ps = ["a", "a", "a", "b", "c", "c"].map((skillId, i) => ({ skillId, i }));
-  assert.deepEqual(spreadByLesson(ps).map((p) => p.skillId), ["a", "b", "c", "a", "c", "a"]);
+test("spreadByLesson alternates lessons, most recent first", () => {
+  const [a, b, c] = [0, 1, 2].map((l) => lessonSkillId("b", 0, l));
+  const ps = [a, a, a, b, c, c].map((skillId, i) => ({ skillId, i }));
+  assert.deepEqual(spreadByLesson(ps).map((p) => p.skillId), [c, b, a, c, a, a]);
+});
+
+test("drills review a few earlier lessons and hammer the current one", () => {
+  assert.deepEqual(splitLessonSlots(8, 20, 20), { current: 6, review: 2 });
+  assert.deepEqual(splitLessonSlots(8, 20, 0), { current: 8, review: 0 });
+  // Short on current-lesson problems: review fills in.
+  assert.deepEqual(splitLessonSlots(8, 3, 20), { current: 3, review: 5 });
+  assert.deepEqual(splitLessonSlots(2, 5, 5), { current: 2, review: 0 });
+  assert.equal(inLesson(lessonSkillId("b", 1, 2), 1, 2), true);
+  assert.equal(inLesson(lessonSkillId("b", 1, 3), 1, 2), false);
+  assert.equal(beforeLesson(lessonSkillId("b", 1, 1), 1, 2), true);
+  assert.equal(beforeLesson(lessonSkillId("b", 0, 9), 1, 0), true);
+  assert.equal(beforeLesson(lessonSkillId("b", 1, 2), 1, 2), false);
+  assert.equal(beforeLesson(lessonSkillId("b", 1, 3), 1, 2), false);
 });
 
 test("chapterProgress tracks skills, and lessons when Claude writes problems for them", () => {
@@ -75,16 +91,11 @@ test("chapterProgress tracks skills, and lessons when Claude writes problems for
   assert.equal(chapterProgress("b1", 5, partial, new Map()).started, false);
 });
 
-test("skipping ahead leaves earlier lessons out of drills and progress", () => {
-  assert.equal(fromLesson(lessonSkillId("b", 1, 0), 2), false);
-  assert.equal(fromLesson(lessonSkillId("b", 1, 3), 2), true);
+test("skipping ahead leaves earlier lessons out of progress", () => {
   const ch = { title: "Ch", lessons: ["A", "B", "C"], skillIds: [], coverage: "none" as const };
   const p = chapterProgress("b", 0, ch, new Map([[lessonSkillId("b", 0, 2), { mastery: 0.6, attempts: 3, mastered: false }]]), 1);
   assert.deepEqual(p.lessons.map((l) => [l.skipped, l.current]), [[true, false], [false, true], [false, false]]);
   assert.equal(p.percent, 0.6 / 2);
-  // Later lessons come first in a drill only after the current one.
-  const ps = [2, 2, 1].map((l) => ({ skillId: lessonSkillId("b", 0, l) }));
-  assert.deepEqual(spreadByLesson(ps).map((x) => parseLessonSkill(x.skillId)!.lesson), [1, 2, 2]);
 });
 
 test("cleanGuide drops check questions whose answer isn't a choice and caps lengths", () => {
@@ -106,4 +117,21 @@ test("cleanGuide drops check questions whose answer isn't a choice and caps leng
   assert.equal(guide.watchOut.length, 3);
   assert.deepEqual(guide.check.map((c) => c.question), ["Which is bigger?"]);
   assert.equal(guide.videoSearch, "what is a fraction");
+});
+
+test("skills taught in later lessons stay out of drills", () => {
+  const ch = {
+    title: "Ch 5", lessons: ["5.1", "5.2", "5.3", "5.4 Multiply fractions", "5.5 Divide fractions"],
+    skillIds: ["mult", "div", "other"], coverage: "partial" as const,
+  };
+  assert.equal(needsSkillLessons(ch), true);
+  // Not placed yet: nothing is held back.
+  assert.deepEqual(laterLessonSkills(ch, 3), []);
+  const placed = { ...ch, skillLessons: { mult: 3, div: 4, other: -1 } };
+  assert.equal(needsSkillLessons(placed), false);
+  assert.deepEqual(laterLessonSkills(placed, 3), ["div"]);
+  assert.deepEqual(laterLessonSkills(placed, 4), []);
+  assert.deepEqual(laterLessonSkills(placed, 0), ["mult", "div"]);
+  // A chapter with one lesson (or none listed) has nothing to place.
+  assert.equal(needsSkillLessons({ ...ch, lessons: [] }), false);
 });

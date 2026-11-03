@@ -116,6 +116,8 @@ export const homeworkSessions = pgTable("homework_sessions", {
   studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   problemText: text("problem_text"),
+  /** The problem typed out by Claude once it was solved, so it can be shown without the photo. */
+  problemStatement: text("problem_statement"),
   imagePath: text("image_path"),
   imageType: text("image_type"),
   status: text("status", { enum: ["active", "solved"] }).notNull().default("active"),
@@ -126,6 +128,19 @@ export const homeworkSessions = pgTable("homework_sessions", {
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("homework_student").on(t.studentId), index("homework_image").on(t.imagePath)]);
+
+/**
+ * A link a student opens on their phone to take a homework photo for the computer they're working on.
+ * The id is a long random token: the phone isn't logged in, so knowing it is what allows the upload.
+ */
+export const photoHandoffs = pgTable("photo_handoffs", {
+  id: text("id").primaryKey(),
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  imagePath: text("image_path"),
+  imageType: text("image_type"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+}, (t) => [index("photo_handoff_student").on(t.studentId), index("photo_handoff_image").on(t.imagePath)]);
 
 export const homeworkMessages = pgTable("homework_messages", {
   id: id(),
@@ -279,6 +294,8 @@ export type TextbookChapter = {
   skillIds: string[];
   /** How much of the chapter those skills cover; the rest gets practice problems Claude writes. */
   coverage: "full" | "partial" | "none";
+  /** The lesson (by position) where each of skillIds is first taught; -1 if no lesson teaches it. Filled in once the chapter is current. */
+  skillLessons?: Record<string, number>;
 };
 
 export type TextbookImage = { path: string; type: string; kind: "cover" | "toc" };

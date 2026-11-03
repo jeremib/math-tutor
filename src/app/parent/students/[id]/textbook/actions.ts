@@ -5,14 +5,15 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
 import { SKILLS_BY_ID } from "@/lib/curriculum";
-import { clearLessonProgress, refillChapterPractice, startWritingChapter, textbookFor } from "@/lib/textbook";
+import { resetUnstartedDrill } from "@/lib/learning";
+import { clearLessonProgress, refillChapterPractice, startPlacingSkills, startWritingChapter, textbookFor } from "@/lib/textbook";
 import { MAX_CHAPTER_SKILLS, chapterFocus, chapterLessons, needsChapterPractice } from "@/lib/textbook-plan";
 
 async function familyTextbook(form: FormData) {
   const { family } = await requireParent();
   const student = await familyStudent(family.id, String(form.get("studentId")));
   const book = student ? await textbookFor(student.id) : null;
-  return student && book?.status === "ready" ? { student, book } : null;
+  return student && book?.status === "ready" ? { student, book, family } : null;
 }
 
 const refresh = (studentId: string) => {
@@ -29,7 +30,7 @@ export async function startChapter(form: FormData) {
   const index = Number(form.get("chapter"));
   const chapter = found?.book.chapters[index];
   if (!found || !chapter) return;
-  const { student, book } = found;
+  const { student, book, family } = found;
   const lesson = Number(form.get("lesson") ?? 0);
   const currentLesson = Number.isInteger(lesson) && lesson > 0 && lesson < chapterLessons(chapter).length ? lesson : null;
   const db = await getDb();
@@ -37,6 +38,9 @@ export async function startChapter(form: FormData) {
     await tx.update(schema.textbooks).set({ currentChapter: index, currentLesson }).where(eq(schema.textbooks.id, book.id));
     await tx.update(schema.students).set({ focusSkills: chapterFocus(chapter) }).where(eq(schema.students.id, student.id));
   });
+  // Today's drill may have been built for another lesson; rebuild it if it hasn't been started.
+  await resetUnstartedDrill(student.id, family.timezone);
+  if (student.aiEnabled) startPlacingSkills({ ...book, currentChapter: index, currentLesson });
   await refillChapterPractice(student);
   refresh(student.id);
 }
@@ -46,10 +50,11 @@ export async function setChapterSkills(form: FormData) {
   const found = await familyTextbook(form);
   const index = Number(form.get("chapter"));
   if (!found || !found.book.chapters[index]) return;
-  const { student, book } = found;
+  const { student, book, family } = found;
   const skillIds = [...new Set(form.getAll("skill").map(String))].filter((id) => SKILLS_BY_ID.has(id)).slice(0, MAX_CHAPTER_SKILLS);
   const chapters = book.chapters.map((c, i) => (i === index ? {
-    ...c, skillIds,
+    // Which lesson teaches each skill is worked out again for the new list.
+    ...c, skillIds, skillLessons: undefined,
     // The parent is choosing; keep Claude's coverage call unless that leaves nothing or adds the first skill.
     coverage: !skillIds.length ? "none" as const : c.coverage === "none" ? "partial" as const : c.coverage,
   } : c));
@@ -60,7 +65,11 @@ export async function setChapterSkills(form: FormData) {
       await tx.update(schema.students).set({ focusSkills: chapterFocus(chapters[index]) }).where(eq(schema.students.id, student.id));
     }
   });
-  if (book.currentChapter === index) await refillChapterPractice(student);
+  if (book.currentChapter === index) {
+    await resetUnstartedDrill(student.id, family.timezone);
+    if (student.aiEnabled) startPlacingSkills({ ...book, chapters });
+    await refillChapterPractice(student);
+  }
   refresh(student.id);
 }
 

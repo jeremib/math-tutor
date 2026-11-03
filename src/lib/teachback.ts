@@ -28,6 +28,7 @@ async function teachBackItem(studentId: string, source: TeachBackSource, sourceI
       title: SKILLS_BY_ID.get(m.skillId)?.name ?? "A tricky idea",
       question: m.teachBackQuestion,
       context: `The student used to make this mistake: ${m.label} They have since practiced and fixed it.`,
+      problem: null,
     };
   }
   const [h] = await db.select().from(schema.homeworkSessions)
@@ -37,6 +38,11 @@ async function teachBackItem(studentId: string, source: TeachBackSource, sourceI
   return {
     title: h.title,
     question: HOMEWORK_QUESTION,
+    // Typed out once solved; until then (or for older sessions) fall back to what the student typed and the photo.
+    problem: {
+      text: h.problemStatement ?? h.problemText,
+      imageUrl: !h.problemStatement && h.imagePath ? `/api/uploads/${h.imagePath}` : null,
+    },
     context: `The student solved this homework problem with a tutor. The conversation:\n${transcript}`,
   };
 }

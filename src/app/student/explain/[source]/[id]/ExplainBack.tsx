@@ -14,8 +14,10 @@ const VERDICTS: Record<Attempt["verdict"], { label: string; style: string }> = {
   not_yet: { label: "🤔 Not quite yet", style: "bg-slate-50 text-slate-800 ring-slate-200" },
 };
 
-export function ExplainBack({ source, sourceId, question, attempts: initial, alreadyDone }: {
-  source: "misconception" | "homework"; sourceId: string; question: string; attempts: Attempt[]; alreadyDone: boolean;
+type Problem = { text: string | null; imageUrl: string | null } | null;
+
+export function ExplainBack({ source, sourceId, question, problem, attempts: initial, alreadyDone }: {
+  source: "misconception" | "homework"; sourceId: string; question: string; problem: Problem; attempts: Attempt[]; alreadyDone: boolean;
 }) {
   const [attempts, setAttempts] = useState(initial);
   const [text, setText] = useState("");
@@ -65,6 +67,16 @@ export function ExplainBack({ source, sourceId, question, attempts: initial, alr
       ) : (
         <form onSubmit={submit} className="card space-y-3">
           {error && <p className="error">{error}</p>}
+          {(problem?.text || problem?.imageUrl) && (
+            <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">The problem</p>
+              {problem.text && <p className="mt-1 whitespace-pre-wrap font-medium">{problem.text}</p>}
+              {problem.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={problem.imageUrl} alt="Your homework problem" className="mt-2 max-h-56 rounded-lg" />
+              )}
+            </div>
+          )}
           <label className="label" htmlFor="explanation">{attempts.length ? "Try again with Math Buddy's tip:" : "Your explanation"}</label>
           <div className="flex gap-2">
             <textarea id="explanation" value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={1500} className="input"

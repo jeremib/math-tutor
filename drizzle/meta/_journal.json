@@ -64,6 +64,20 @@
       "when": 1793668271089,
       "tag": "0008_lesson_guides",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793676478258,
+      "tag": "0009_problem_statement",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793679632556,
+      "tag": "0010_photo_handoffs",
+      "breakpoints": true
     }
   ]
 }

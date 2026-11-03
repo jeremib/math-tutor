@@ -1,0 +1,1 @@
+ALTER TABLE "homework_sessions" ADD COLUMN "problem_statement" text;

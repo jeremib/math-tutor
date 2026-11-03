@@ -32,6 +32,20 @@ export function chapterFocus(chapter: TextbookChapter): string[] {
   return chapter.skillIds.slice(0, MAX_FOCUS);
 }
 
+/**
+ * The chapter's skills that belong to lessons after the current one, so drills leave them out until
+ * the class gets there. Skills no lesson teaches (-1) or not yet placed are kept.
+ */
+export function laterLessonSkills(chapter: TextbookChapter, lesson: number): string[] {
+  const at = chapter.skillLessons ?? {};
+  return chapter.skillIds.filter((id) => (at[id] ?? -1) > lesson);
+}
+
+/** Whether the chapter's skills still need placing into its lessons. */
+export function needsSkillLessons(chapter: TextbookChapter): boolean {
+  return chapter.skillIds.length > 0 && chapter.lessons.length > 1 && chapter.skillIds.some((id) => chapter.skillLessons?.[id] === undefined);
+}
+
 /** Whether the chapter has lessons the curriculum's skills don't cover, so Claude writes problems for them. */
 export function needsChapterPractice(chapter: TextbookChapter): boolean {
   return chapter.coverage !== "full" || chapter.skillIds.length === 0;
@@ -60,12 +74,12 @@ export function chapterLessons(chapter: TextbookChapter): string[] {
 }
 
 /**
- * How many of a drill's problems come from the current chapter's written problems. With no built-in
- * skills for the chapter they're most of the drill; otherwise they share it, like other practice.
+ * How many of a drill's problems come from the textbook's written problems. With no built-in
+ * skills for the chapter they're most of the drill; otherwise they share it with those skills.
  */
 export function textbookShare(count: number, available: number, chapterHasSkills: boolean): number {
   if (available <= 0 || count <= 0) return 0;
-  const want = chapterHasSkills ? Math.max(1, Math.floor(count / 3)) : Math.round(count * 0.7);
+  const want = chapterHasSkills ? Math.max(1, Math.floor(count / 2)) : Math.round(count * 0.8);
   return Math.min(available, want);
 }
 
@@ -74,17 +88,35 @@ export function refillBelow(dailyProblems: number, chapterHasSkills: boolean): n
   return 2 * textbookShare(dailyProblems, Infinity, chapterHasSkills);
 }
 
-/** Whether a lesson problem is for the class's current lesson or a later one. Earlier lessons were skipped. */
-export function fromLesson(skillId: string, start: number): boolean {
-  return (parseLessonSkill(skillId)?.lesson ?? 0) >= start;
+/** Whether a lesson problem is for exactly this lesson. */
+export function inLesson(skillId: string, chapter: number, lesson: number): boolean {
+  const at = parseLessonSkill(skillId);
+  return !!at && at.chapter === chapter && at.lesson === lesson;
 }
 
-/** Takes problems one lesson at a time in turn, earliest lesson first, so a drill mixes the chapter's lessons. */
+/** Whether a lesson problem is for a lesson before this one: earlier in the chapter, or an earlier chapter. */
+export function beforeLesson(skillId: string, chapter: number, lesson: number): boolean {
+  const at = parseLessonSkill(skillId);
+  return !!at && (at.chapter < chapter || (at.chapter === chapter && at.lesson < lesson));
+}
+
+/**
+ * Splits a drill's textbook slots: a few review problems from earlier lessons (about a quarter),
+ * the rest on the current lesson. Whichever runs short is made up by the other.
+ */
+export function splitLessonSlots(slots: number, currentAvailable: number, reviewAvailable: number) {
+  const wantReview = slots >= 3 ? Math.max(1, Math.round(slots / 4)) : 0;
+  const current = Math.min(currentAvailable, slots - Math.min(wantReview, reviewAvailable));
+  const review = Math.min(reviewAvailable, slots - current);
+  return { current, review };
+}
+
+/** Takes problems one lesson at a time in turn, most recent lesson first, so review mixes the lessons before this one. */
 export function spreadByLesson<P extends { skillId: string }>(problems: P[]): P[] {
   const byLesson = new Map<string, P[]>();
   for (const p of problems) byLesson.set(p.skillId, [...(byLesson.get(p.skillId) ?? []), p]);
-  const lessonOf = (q: P[]) => parseLessonSkill(q[0].skillId)?.lesson ?? 0;
-  const queues = [...byLesson.values()].sort((a, b) => lessonOf(a) - lessonOf(b));
+  const order = (q: P[]) => { const at = parseLessonSkill(q[0].skillId); return at ? at.chapter * 1000 + at.lesson : 0; };
+  const queues = [...byLesson.values()].sort((a, b) => order(b) - order(a));
   const out: P[] = [];
   while (out.length < problems.length) for (const q of queues) if (q.length) out.push(q.shift()!);
   return out;

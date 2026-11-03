@@ -8,10 +8,11 @@ import { Scratchpad, type ScratchpadHandle } from "@/components/Scratchpad";
 import { MicButton, useReadAloud } from "@/components/Voice";
 import type { AwardSummary } from "@/lib/achievements";
 
-export function HomeworkChat({ sessionId, studentName, initialMessages, initialSolved }: {
+export function HomeworkChat({ sessionId, studentName, initialMessages, initialSolved, hasPhoto = false }: {
   sessionId: string;
   studentName: string;
   initialMessages: ChatMessage[];
+  hasPhoto?: boolean;
   initialSolved: boolean;
 }) {
   const [messages, setMessages] = useState(initialMessages);
@@ -82,6 +83,7 @@ export function HomeworkChat({ sessionId, studentName, initialMessages, initialS
           <p className="text-sm text-emerald-700">Watch for a few problems like this one in your next drill.</p>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
             <Link href={`/student/explain/homework/${sessionId}`} className="btn-secondary">🗣️ Teach it back (+15 XP)</Link>
+            {hasPhoto && <Link href={`/student/homework?photo=${sessionId}`} className="btn-secondary">📷 Next problem on this page</Link>}
             <Link href="/student/homework" className="btn">Next problem</Link>
           </div>
         </div>

@@ -152,7 +152,7 @@ export default async function TextbookPage({ params }: { params: Promise<{ id: s
                 <p className="text-lg font-bold">{book.chapters[current].title}</p>
                 {currentLessons.length > 1 && (
                   <p className="text-sm font-semibold text-brand-700">
-                    👉 {currentLessons[lessonAt]}{lessonAt > 0 ? ` · skipping ${plural(lessonAt, "earlier lesson")}` : ""}
+                    👉 {currentLessons[lessonAt]}{lessonAt > 0 ? ` · reviewing ${plural(lessonAt, "earlier lesson")}` : ""}
                   </p>
                 )}
                 <p className="text-sm text-slate-600">
@@ -229,8 +229,8 @@ function CurrentPlan({ chapter, aiEnabled, waiting, writing }: { chapter: Textbo
   return (
     <>
       {hasSkills
-        ? "Its skills make up most of each drill, along with problems Math Buddy writes for its other lessons."
-        : "Math Buddy writes problems for each of its lessons, and they make up most of each drill."}
+        ? "Its skills share each drill with problems Math Buddy writes for the current lesson, plus a few reviewing earlier lessons."
+        : "Each drill is mostly problems Math Buddy writes for the current lesson, plus a few reviewing earlier lessons."}
       {writing ? " Writing more problems now…" : waiting > 0 ? ` ${plural(waiting, "problem")} ready.` : ""}
       {" "}More are written as they&apos;re used up, a little harder or easier depending on how it&apos;s going.
     </>

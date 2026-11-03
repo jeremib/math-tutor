@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import { getDb, schema, type Db } from "@/db";
 import { SKILLS_BY_ID, seededRandom } from "./curriculum";
 import { checkAnswer } from "./answers";
@@ -9,8 +9,8 @@ import {
   type SkillState,
 } from "./progress";
 import { RESOLVE_AFTER, choosePractice, mixIntoDrill } from "./practice";
-import { lessonTitles, refillChapterPractice, textbookFor } from "./textbook";
-import { chapterSkillPrefix, fromLesson, parseLessonSkill, spreadByLesson, textbookShare } from "./textbook-plan";
+import { lessonTitles, placeChapterSkills, refillChapterPractice, textbookFor } from "./textbook";
+import { beforeLesson, chapterSkillPrefix, inLesson, laterLessonSkills, needsSkillLessons, parseLessonSkill, splitLessonSlots, spreadByLesson, textbookShare } from "./textbook-plan";
 
 type Student = typeof schema.students.$inferSelect;
 /** A connection or an open transaction. */
@@ -58,30 +58,63 @@ export function todayFor(timezone: string) {
   return localDate(timezone);
 }
 
+/** Review problems drawn from earlier lessons' answered drill problems, missed ones first, one per prompt. */
+async function reviewProblems(studentId: string, textbookId: string, at: { chapter: number; lesson: number }, tx: Tx) {
+  const rows = await tx.select({ p: schema.drillProblems }).from(schema.drillProblems)
+    .innerJoin(schema.drills, eq(schema.drills.id, schema.drillProblems.drillId))
+    .where(and(eq(schema.drills.studentId, studentId), isNotNull(schema.drillProblems.solved),
+      like(schema.drillProblems.skillId, `tb:${textbookId}:%`)))
+    .orderBy(asc(schema.drillProblems.firstTryCorrect), desc(schema.drillProblems.answeredAt)).limit(80);
+  const seen = new Set<string>();
+  return rows.map((r) => r.p).filter((p) => beforeLesson(p.skillId, at.chapter, at.lesson) && !seen.has(p.prompt) && seen.add(p.prompt))
+    .map((p) => ({
+      id: null as string | null, skillId: p.skillId, prompt: p.prompt, answer: p.answer, answerKind: p.answerKind, hint: p.hint,
+      explanation: p.explanation, source: "textbook" as const, misconceptionId: null as string | null, testPrepId: null as string | null,
+    }));
+}
+
 /** Returns today's drill, creating it on first visit. */
 export async function getOrCreateDrill(student: Student, timezone: string) {
   const db = await getDb();
   const date = todayFor(timezone);
   const where = and(eq(schema.drills.studentId, student.id), eq(schema.drills.date, date));
   const [existing] = await db.select().from(schema.drills).where(where);
-  if (existing) return existing;
+  if (existing && !(await aheadOfClass(existing.id, student.id))) return existing;
+  // Built before the class's current lesson was set (or moved back): rebuild it if it hasn't been started.
+  if (existing) {
+    await resetUnstartedDrill(student.id, timezone);
+    const [kept] = await db.select().from(schema.drills).where(where);
+    if (kept) return kept;
+  }
 
   // Drills follow the textbook chapter the class is on, if the parent picked one.
-  const book = await textbookFor(student.id);
-  const chapter = book?.status === "ready" && book.currentChapter !== null ? book.chapters[book.currentChapter] : undefined;
+  let book = await textbookFor(student.id);
+  const chapterOf = (b: typeof book) => (b?.status === "ready" && b.currentChapter !== null ? b.chapters[b.currentChapter] : undefined);
+  // Before the first drill of a chapter, find which lesson teaches each of its skills (once; it's quick).
+  if (book && student.aiEnabled && chapterOf(book) && needsSkillLessons(chapterOf(book)!)) {
+    try {
+      await placeChapterSkills(book.id, book.currentChapter!);
+      book = await textbookFor(student.id);
+    } catch (error) {
+      console.error("placing chapter skills failed", error);
+    }
+  }
+  const chapter = chapterOf(book);
+  // Skills taught in lessons the class hasn't reached yet stay out of drills.
+  const later = new Set(chapter ? laterLessonSkills(chapter, book!.currentLesson ?? 0) : []);
   const chapterPrefix = chapter ? chapterSkillPrefix(book!.id, book!.currentChapter!) : null;
 
   let created = false;
   const result = await db.transaction(async (tx) => {
     await unlockNext(student.id, tx);
-    const focus = parseFocus(student);
+    const focus = parseFocus(student).filter((id) => !later.has(id));
     // Focus skills are practiced even if the curriculum hasn't reached them yet.
     if (focus.length) {
       await tx.insert(schema.studentSkills).values(focus.map((skillId) => ({ studentId: student.id, skillId }))).onConflictDoNothing();
     }
     // Following a textbook chapter replaces the regular skill path: the chapter's skills (or its written
     // problems) are the new material, and the rest of the drill reviews what's mastered.
-    const all = toStates(await skillRows(student.id, tx));
+    const all = toStates(await skillRows(student.id, tx)).filter((s) => !later.has(s.skillId));
     const followed = chapter ? all.filter((s) => s.mastered || focus.includes(s.skillId)) : all;
     const skills = chooseDrillSkills(followed.length ? followed : all, student.dailyProblems, focus);
 
@@ -98,15 +131,20 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
       .orderBy(asc(schema.testPreps.quizDate), asc(schema.practiceProblems.createdAt)).limit(100);
     // Quiz problems only count until the quiz; nulls (non-quiz practice) sort last above.
     const quiz = queued.filter((q) => q.quizDate && q.quizDate >= date).map((q) => q.p);
-    // Lessons before the class's current one were skipped; their leftover problems wait in case the parent goes back.
-    const lessons = queued.filter((q) => chapterPrefix && q.p.skillId.startsWith(chapterPrefix)).map((q) => q.p)
-      .filter((p) => fromLesson(p.skillId, book?.currentLesson ?? 0));
-    const other = queued.filter((q) => !q.p.testPrepId && !(chapterPrefix && q.p.skillId.startsWith(chapterPrefix))).map((q) => q.p);
+    // The class's current lesson gets most of the textbook slots; a few review lessons before it.
+    const lessonAt = { chapter: book?.currentChapter ?? 0, lesson: book?.currentLesson ?? 0 };
+    const current = queued.filter((q) => chapterPrefix && inLesson(q.p.skillId, lessonAt.chapter, lessonAt.lesson)).map((q) => q.p);
+    const leftover = queued.filter((q) => chapterPrefix && beforeLesson(q.p.skillId, lessonAt.chapter, lessonAt.lesson) && q.p.skillId.startsWith(`tb:${book!.id}:`))
+      .map((q) => q.p);
+    const review = chapterPrefix ? [...leftover, ...(await reviewProblems(student.id, book!.id, lessonAt, tx))] : [];
+    // While following a chapter, later lessons' problems wait until the class gets there.
+    const other = queued.filter((q) => !q.p.testPrepId && !(chapterPrefix && q.p.skillId.startsWith("tb:"))).map((q) => q.p);
     const daysToQuiz = quiz.length ? Math.round((Date.parse(queued.find((q) => q.quizDate && q.quizDate >= date)!.quizDate!) - Date.parse(date)) / 86_400_000) : 0;
-    // The current chapter's lessons go first: most of the drill when no built-in skill covers the chapter.
-    const lessonCount = textbookShare(skills.length, lessons.length, !!chapter?.skillIds.length);
-    const slots = choosePractice(skills.length - lessonCount, quiz.length, daysToQuiz, other.length);
-    const practice = [...spreadByLesson(lessons).slice(0, lessonCount), ...quiz.slice(0, slots.quiz), ...other.slice(0, slots.other)];
+    const lessonCount = textbookShare(skills.length, current.length + review.length, !!chapter?.skillIds.length);
+    const split = splitLessonSlots(lessonCount, current.length, review.length);
+    const slots = choosePractice(skills.length - split.current - split.review, quiz.length, daysToQuiz, other.length);
+    const reviewPicked = spreadByLesson(review).slice(0, split.review);
+    const practice = [...reviewPicked, ...current.slice(0, split.current), ...quiz.slice(0, slots.quiz), ...other.slice(0, slots.other)];
 
     const rand = seededRandom(Date.now() ^ student.id.charCodeAt(0));
     const curriculum = skills.map((skillId) => {
@@ -124,15 +162,51 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
     await tx.insert(schema.drillProblems).values(
       mixIntoDrill(curriculum, fromPractice).map((p, position) => ({ ...p, drillId: drill.id, position })),
     );
-    if (practice.length) {
-      await tx.update(schema.practiceProblems).set({ usedAt: new Date() })
-        .where(inArray(schema.practiceProblems.id, practice.map((q) => q.id)));
+    // Review problems taken from earlier drills have no practice row to mark.
+    const used = practice.flatMap((q) => (q.id ? [q.id] : []));
+    if (used.length) {
+      await tx.update(schema.practiceProblems).set({ usedAt: new Date() }).where(inArray(schema.practiceProblems.id, used));
     }
     return drill;
   });
   // Today's drill used up some of the chapter's problems; write more if it's running low.
   if (created) await refillChapterPractice(student);
   return result;
+}
+
+/** Whether a drill has problems from lessons the class hasn't reached yet. */
+async function aheadOfClass(drillId: string, studentId: string) {
+  const book = await textbookFor(studentId);
+  const chapter = book?.status === "ready" && book.currentChapter !== null ? book.chapters[book.currentChapter] : undefined;
+  if (!book || !chapter) return false;
+  const lesson = book.currentLesson ?? 0;
+  const later = new Set(laterLessonSkills(chapter, lesson));
+  return (await drillProblems(drillId)).some((p) => {
+    const at = parseLessonSkill(p.skillId);
+    return later.has(p.skillId) || (at?.textbookId === book.id && (at.chapter > book.currentChapter! || (at.chapter === book.currentChapter && at.lesson > lesson)));
+  });
+}
+
+/**
+ * Throws away today's drill if the student hasn't started it, so it's rebuilt for a new chapter or
+ * lesson. Its written practice problems go back in the queue.
+ */
+export async function resetUnstartedDrill(studentId: string, timezone: string) {
+  const db = await getDb();
+  const [drill] = await db.select().from(schema.drills)
+    .where(and(eq(schema.drills.studentId, studentId), eq(schema.drills.date, todayFor(timezone))));
+  if (!drill) return;
+  const problems = await drillProblems(drill.id);
+  if (problems.some((p) => p.tries > 0 || p.usedHint || p.answeredAt)) return;
+  await db.transaction(async (tx) => {
+    const prompts = problems.filter((p) => p.source !== "curriculum").map((p) => p.prompt);
+    if (prompts.length) {
+      await tx.update(schema.practiceProblems).set({ usedAt: null })
+        .where(and(eq(schema.practiceProblems.studentId, studentId), gte(schema.practiceProblems.usedAt, drill.createdAt),
+          inArray(schema.practiceProblems.prompt, prompts)));
+    }
+    await tx.delete(schema.drills).where(eq(schema.drills.id, drill.id));
+  });
 }
 
 export async function drillProblems(drillId: string, tx?: Tx) {

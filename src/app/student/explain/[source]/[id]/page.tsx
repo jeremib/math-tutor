@@ -21,7 +21,7 @@ export default async function ExplainPage({ params }: { params: Promise<{ source
         <h1 className="mt-1 text-2xl font-extrabold">{page.question}</h1>
         <p className="mt-1 text-slate-600">Explaining an idea in your own words is one of the best ways to remember it. Type it or say it out loud.</p>
       </div>
-      <ExplainBack source={source as TeachBackSource} sourceId={id} question={page.question} alreadyDone={done}
+      <ExplainBack source={source as TeachBackSource} sourceId={id} question={page.question} problem={page.problem} alreadyDone={done}
         attempts={page.attempts.map((a) => ({ id: a.id, answer: a.answer, verdict: a.verdict, feedback: a.feedback }))} />
     </div>
   );

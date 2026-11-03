@@ -19,13 +19,17 @@ export default async function HomeworkSessionPage({ params }: { params: Promise<
     <div className="space-y-4">
       <Link href="/student/homework" className="text-sm font-semibold text-brand-600">← Homework help</Link>
       {session.imagePath && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/uploads/${session.imagePath}`} alt="Your homework problem" className="max-h-72 rounded-xl ring-1 ring-slate-200" />
+        <div className="space-y-1">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/api/uploads/${session.imagePath}`} alt="Your homework problem" className="max-h-72 rounded-xl ring-1 ring-slate-200" />
+          <Link href={`/student/homework?photo=${session.id}`} className="text-sm font-semibold text-brand-600">📷 Start another problem from this photo</Link>
+        </div>
       )}
       <HomeworkChat
         sessionId={session.id}
         studentName={student.name}
         initialSolved={session.status === "solved"}
+        hasPhoto={!!session.imagePath}
         initialMessages={(await sessionMessages(session.id)).map((m) => ({ id: m.id, role: m.role, content: m.content, imageUrl: m.imagePath ? `/api/uploads/${m.imagePath}` : null }))}
       />
     </div>
