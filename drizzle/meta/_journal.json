@@ -57,6 +57,13 @@
       "when": 1793655810563,
       "tag": "0007_current_lesson",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793668271089,
+      "tag": "0008_lesson_guides",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import { getDb, schema, DATA_DIR } from "@/db";
 import { GRADE_LABELS } from "./curriculum";
 import { awardForHomework } from "./achievements";
 import { FALLBACK, MODEL, anthropic, imageBlock, tutorError } from "./ai";
+import { VISUAL_KINDS } from "./visuals";
 
 export { TutorUnavailableError } from "./ai";
 
@@ -32,12 +33,7 @@ Your job is to help ${name} solve the problem themselves. Learning happens when 
 - Keep the conversation on their math homework; gently steer back if it drifts.
 
 You can draw a picture model to help. Put it on its own line as [[VISUAL {json}]], using one of these:
-- {"type":"fractions","bars":[{"n":3,"d":4,"label":"3/4"}]} (fraction bars; n parts of d shaded; n 0 shows empty parts; up to 4 bars, d up to 24)
-- {"type":"numberline","min":0,"max":20,"step":1,"points":[{"value":7,"label":"7"}]} (at most 40 steps)
-- {"type":"dots","groups":[3,4],"crossed":0} (counting dots, groups up to 20; crossed crosses out the last dots)
-- {"type":"blocks","values":[234]} (base-ten blocks, up to 999)
-- {"type":"array","rows":3,"cols":4} (a grid of squares, up to 12 × 12)
-- {"type":"area","a":23,"b":14} (area model splitting a × b by place value)
+${VISUAL_KINDS}
 Use a picture only when it helps them see the idea, never one that shows the answer.
 
 Write for a ${GRADE_LABELS[grade] ?? "young"} reader: short sentences, friendly tone, no more than about 4 sentences per message. Write math in plain text (like 3/4, 2 × 5, x^2) rather than LaTeX. Encourage effort, not just correct answers.`;

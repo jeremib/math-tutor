@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chapterFocus, chapterProgress, cleanChapters, needsChapterPractice, skillChoicesFor, MAX_CHAPTERS } from "../src/lib/textbook-plan.ts";
+import { chapterFocus, chapterProgress, cleanChapters, cleanGuide, needsChapterPractice, skillChoicesFor, MAX_CHAPTERS } from "../src/lib/textbook-plan.ts";
 
 test("cleanChapters drops unknown skills, blank titles and extra chapters", () => {
   const chapters = cleanChapters([
@@ -85,4 +85,25 @@ test("skipping ahead leaves earlier lessons out of drills and progress", () => {
   // Later lessons come first in a drill only after the current one.
   const ps = [2, 2, 1].map((l) => ({ skillId: lessonSkillId("b", 0, l) }));
   assert.deepEqual(spreadByLesson(ps).map((x) => parseLessonSkill(x.skillId)!.lesson), [1, 2, 2]);
+});
+
+test("cleanGuide drops check questions whose answer isn't a choice and caps lengths", () => {
+  const guide = cleanGuide({
+    bigIdea: " Fractions name parts of a whole. ",
+    sections: [{ heading: "Parts", body: "A fraction has a top and a bottom." }, { heading: "Empty", body: "  " }],
+    examples: [{ problem: "What is 1/2 of 8?", steps: ["Split 8 into 2 equal groups.", " "], answer: "4" }],
+    watchOut: ["Don't add the bottoms.", "", "a", "b", "c"],
+    check: [
+      { question: "Which is bigger?", choices: ["1/2", "1/3"], answer: 0, why: "Halves are bigger pieces." },
+      { question: "Bad index", choices: ["a", "b"], answer: 2, why: "" },
+      { question: "One choice", choices: ["a"], answer: 0, why: "" },
+    ],
+    videoSearch: "  what is a fraction ",
+  });
+  assert.equal(guide.bigIdea, "Fractions name parts of a whole.");
+  assert.equal(guide.sections.length, 1);
+  assert.deepEqual(guide.examples[0].steps, ["Split 8 into 2 equal groups."]);
+  assert.equal(guide.watchOut.length, 3);
+  assert.deepEqual(guide.check.map((c) => c.question), ["Which is bigger?"]);
+  assert.equal(guide.videoSearch, "what is a fraction");
 });

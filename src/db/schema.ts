@@ -310,3 +310,26 @@ export const textbooks = pgTable("textbooks", {
   note: text("note"),
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("textbooks_student").on(t.studentId)]);
+
+export type LessonGuide = {
+  /** The lesson's main idea in a sentence or two. */
+  bigIdea: string;
+  /** Short teaching sections; a body may hold [[VISUAL {...}]] picture lines. */
+  sections: { heading: string; body: string }[];
+  examples: { problem: string; steps: string[]; answer: string }[];
+  watchOut: string[];
+  /** Multiple-choice questions to check understanding; answer is the index of the right choice. */
+  check: { question: string; choices: string[]; answer: number; why: string }[];
+  /** What to search for to find a video on this lesson. */
+  videoSearch: string;
+};
+
+/** A mini-lesson Claude writes for one textbook lesson, for the student to read before practicing. */
+export const lessonGuides = pgTable("lesson_guides", {
+  id: id(),
+  textbookId: text("textbook_id").notNull().references(() => textbooks.id, { onDelete: "cascade" }),
+  /** The lesson's skill id, tb:<textbookId>:<chapter>:<lesson>. */
+  skillId: text("skill_id").notNull(),
+  guide: jsonb("guide").$type<LessonGuide>().notNull(),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("lesson_guides_skill").on(t.skillId)]);

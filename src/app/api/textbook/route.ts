@@ -6,6 +6,7 @@ import type { TextbookImage } from "@/db/schema";
 import { familyStudent, getParent } from "@/lib/auth";
 import { clearLessonProgress, lookUpTextbook, textbookFor } from "@/lib/textbook";
 import { saveImageField, saveImageFields } from "@/lib/tutor";
+import { clearLessonGuides } from "@/lib/lesson-guide";
 
 const MAX_TOC_PHOTOS = 4;
 
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
     await db.delete(schema.practiceProblems)
       .where(and(eq(schema.practiceProblems.textbookId, existing.id), isNull(schema.practiceProblems.usedAt)));
     await clearLessonProgress(existing.id, student.id);
+    await clearLessonGuides(existing.id);
   }
   const [book] = await db.insert(schema.textbooks).values({ studentId: student.id, ...values })
     .onConflictDoUpdate({ target: schema.textbooks.studentId, set: values }).returning();

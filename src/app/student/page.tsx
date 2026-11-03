@@ -10,7 +10,8 @@ import { localDate } from "@/lib/progress";
 import { pendingTeachBacks } from "@/lib/teachback";
 import { testPrepsFor } from "@/lib/testprep";
 import { textbookProgress } from "@/lib/textbook";
-import { BookProgress } from "@/components/BookProgress";
+import { BookProgress, learnHref } from "@/components/BookProgress";
+import { chapterLessons } from "@/lib/textbook-plan";
 import { DrillTopics } from "@/components/DrillTopics";
 
 export default async function StudentHome() {
@@ -31,6 +32,9 @@ export default async function StudentHome() {
       ...(chapter ? [{ name: chapter.title, fromBook: true }] : []),
       ...parseFocus(student).map((id) => ({ name: SKILLS_BY_ID.get(id)!.name, fromBook: false })),
     ];
+  // The lesson the class is on, to read before practicing.
+  const bookLessons = book && book.book.currentChapter !== null ? chapterLessons(book.book.chapters[book.book.currentChapter]) : [];
+  const lessonAt = bookLessons.length && student.aiEnabled ? Math.min(book!.book.currentLesson ?? 0, bookLessons.length - 1) : null;
   const nextQuiz = preps.find((p) => p.upcoming && p.status === "ready");
   const learning = stats.skills.filter((s) => !s.masteredAt);
   const nextReward = game.rewards.find((r) => !r.givenAt);
@@ -60,6 +64,13 @@ export default async function StudentHome() {
           <p className="text-slate-600">{stats.doneToday ? "Great work. Come back tomorrow for a new set." : `${student.dailyProblems} problems · up to ${student.dailyProblems * 10 + 50} XP`}</p>
           {topics.length > 0 && <div className="mt-3"><DrillTopics topics={topics} limit={6} /></div>}
         </Link>
+        {lessonAt !== null && (
+          <Link href={learnHref(book!.book.currentChapter!, lessonAt)} className="card block transition hover:-translate-y-0.5">
+            <div className="text-4xl">📖</div>
+            <h2 className="mt-2 text-xl font-bold">Learn the lesson</h2>
+            <p className="text-slate-600">{bookLessons[lessonAt]}: read it, watch examples worked out and try a quick check.</p>
+          </Link>
+        )}
         {student.aiEnabled && (
           <Link href="/student/homework" className="card block transition hover:-translate-y-0.5">
             <div className="text-4xl">🧭</div>
@@ -135,7 +146,7 @@ export default async function StudentHome() {
           <h2 className="text-xl font-bold">{book ? `📖 ${book.book.title}` : "What you\u2019re learning"}</h2>
           <Link href="/student/trophies" className="text-sm font-semibold text-brand-600">See trophies →</Link>
         </div>
-        {book ? <BookProgress progress={book} forStudent /> : <ul className="space-y-3">
+        {book ? <BookProgress progress={book} forStudent learn={student.aiEnabled} /> : <ul className="space-y-3">
           {learning.map((s) => (
             <li key={s.skillId}>
               <div className="mb-1 flex justify-between text-sm"><span className="font-semibold">{s.skill!.name}</span><span className="text-slate-500">{Math.round(s.mastery * 100)}%</span></div>

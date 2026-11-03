@@ -1,6 +1,6 @@
 // Pure helpers for turning a textbook's chapter list into a practice plan.
 import { SKILLS, SKILLS_BY_ID } from "./curriculum.ts";
-import type { TextbookChapter } from "../db/schema.ts";
+import type { LessonGuide, TextbookChapter } from "../db/schema.ts";
 
 export const MAX_CHAPTERS = 24;
 export const MAX_LESSONS = 20;
@@ -121,5 +121,24 @@ export function chapterProgress(textbookId: string, index: number, chapter: Text
     percent: items.length ? items.reduce((n, p) => n + value(p), 0) / items.length : 0,
     started: items.some((p) => (p?.attempts ?? 0) > 0),
     done: items.length > 0 && items.every((p) => p?.mastered),
+  };
+}
+
+type RawGuide = Omit<LessonGuide, "check"> & { check: { question: string; choices: string[]; answer: number; why: string }[] };
+
+/** Drops check questions whose answer isn't one of their choices and caps a lesson guide's lengths. */
+export function cleanGuide(raw: RawGuide): LessonGuide {
+  return {
+    bigIdea: raw.bigIdea.trim().slice(0, 600),
+    sections: raw.sections.filter((s) => s.body.trim()).slice(0, 5).map((s) => ({ heading: tidy(s.heading, 80), body: s.body.trim().slice(0, 2000) })),
+    examples: raw.examples.filter((e) => e.problem.trim() && e.steps.length).slice(0, 3)
+      .map((e) => ({ problem: e.problem.trim().slice(0, 400), steps: e.steps.map((s) => s.trim()).filter(Boolean).slice(0, 8), answer: tidy(e.answer, 120) })),
+    watchOut: raw.watchOut.map((w) => w.trim()).filter(Boolean).slice(0, 3),
+    check: raw.check
+      .map((c) => ({ ...c, choices: c.choices.map((x) => tidy(x, 120)) }))
+      .filter((c) => c.question.trim() && c.choices.length >= 2 && c.choices.length <= 5 && Number.isInteger(c.answer) && c.answer >= 0 && c.answer < c.choices.length)
+      .slice(0, 3)
+      .map((c) => ({ question: c.question.trim().slice(0, 400), choices: c.choices, answer: c.answer, why: c.why.trim().slice(0, 400) })),
+    videoSearch: tidy(raw.videoSearch, 80),
   };
 }

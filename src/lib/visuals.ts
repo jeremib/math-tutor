@@ -14,6 +14,14 @@ export type Visual =
   /** An area model splitting a × b into place-value parts, e.g. 23 × 14 = (20+3) × (10+4). */
   | { type: "area"; a: number; b: number };
 
+/** The picture kinds Claude can draw, for prompts. Each goes on its own line as [[VISUAL {json}]]. */
+export const VISUAL_KINDS = `- {"type":"fractions","bars":[{"n":3,"d":4,"label":"3/4"}]} (fraction bars; n parts of d shaded; n 0 shows empty parts; up to 4 bars, d up to 24)
+- {"type":"numberline","min":0,"max":20,"step":1,"points":[{"value":7,"label":"7"}]} (at most 40 steps)
+- {"type":"dots","groups":[3,4],"crossed":0} (counting dots, groups up to 20; crossed crosses out the last dots)
+- {"type":"blocks","values":[234]} (base-ten blocks, up to 999)
+- {"type":"array","rows":3,"cols":4} (a grid of squares, up to 12 × 12)
+- {"type":"area","a":23,"b":14} (area model splitting a × b by place value)`;
+
 const ok = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 const int = (x: unknown, min: number, max: number) => ok(x) && Number.isInteger(x) && x >= min && x <= max;
 

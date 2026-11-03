@@ -45,7 +45,7 @@ export function useVoice() {
   useEffect(() => {
     setSupported({ speak: "speechSynthesis" in window, listen: !!recognitionCtor() });
   }, []);
-  return { enabled, canSpeak: enabled && supported.speak, canListen: enabled && supported.listen };
+  return { enabled, canSpeak: enabled && supported.speak, canListen: enabled && supported.listen, speechSupported: supported.speak };
 }
 
 /** Reads `text` aloud whenever it changes, if voice mode is on. */
@@ -56,10 +56,10 @@ export function useReadAloud(text: string | null | undefined) {
   }, [canSpeak, text]);
 }
 
-/** A 🔊 button that reads the given text aloud. Renders nothing when voice mode is off. */
-export function SpeakButton({ text, className = "" }: { text: string; className?: string }) {
-  const { canSpeak } = useVoice();
-  if (!canSpeak) return null;
+/** A 🔊 button that reads the given text aloud. Renders nothing when voice mode is off, unless `always`. */
+export function SpeakButton({ text, className = "", always = false }: { text: string; className?: string; always?: boolean }) {
+  const { canSpeak, speechSupported } = useVoice();
+  if (!(always ? speechSupported : canSpeak)) return null;
   return (
     <button type="button" onClick={() => speak(text)} aria-label="Read aloud" title="Read aloud"
       className={`inline-grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-brand-600 ring-1 ring-slate-300 hover:bg-slate-50 ${className}`}>
