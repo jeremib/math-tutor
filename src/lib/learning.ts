@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import { getDb, schema, type Db } from "@/db";
 import { SKILLS_BY_ID, seededRandom } from "./curriculum";
 import { checkAnswer } from "./answers";
@@ -9,8 +9,8 @@ import {
   type SkillState,
 } from "./progress";
 import { RESOLVE_AFTER, choosePractice, mixIntoDrill } from "./practice";
-import { lessonTitles, refillChapterPractice, textbookFor } from "./textbook";
-import { beforeLesson, chapterSkillPrefix, inLesson, parseLessonSkill, splitLessonSlots, spreadByLesson, textbookShare } from "./textbook-plan";
+import { lessonTitles, placeChapterSkills, refillChapterPractice, textbookFor } from "./textbook";
+import { beforeLesson, chapterSkillPrefix, inLesson, laterLessonSkills, needsSkillLessons, parseLessonSkill, splitLessonSlots, spreadByLesson, textbookShare } from "./textbook-plan";
 
 type Student = typeof schema.students.$inferSelect;
 /** A connection or an open transaction. */
@@ -79,24 +79,42 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
   const date = todayFor(timezone);
   const where = and(eq(schema.drills.studentId, student.id), eq(schema.drills.date, date));
   const [existing] = await db.select().from(schema.drills).where(where);
-  if (existing) return existing;
+  if (existing && !(await aheadOfClass(existing.id, student.id))) return existing;
+  // Built before the class's current lesson was set (or moved back): rebuild it if it hasn't been started.
+  if (existing) {
+    await resetUnstartedDrill(student.id, timezone);
+    const [kept] = await db.select().from(schema.drills).where(where);
+    if (kept) return kept;
+  }
 
   // Drills follow the textbook chapter the class is on, if the parent picked one.
-  const book = await textbookFor(student.id);
-  const chapter = book?.status === "ready" && book.currentChapter !== null ? book.chapters[book.currentChapter] : undefined;
+  let book = await textbookFor(student.id);
+  const chapterOf = (b: typeof book) => (b?.status === "ready" && b.currentChapter !== null ? b.chapters[b.currentChapter] : undefined);
+  // Before the first drill of a chapter, find which lesson teaches each of its skills (once; it's quick).
+  if (book && student.aiEnabled && chapterOf(book) && needsSkillLessons(chapterOf(book)!)) {
+    try {
+      await placeChapterSkills(book.id, book.currentChapter!);
+      book = await textbookFor(student.id);
+    } catch (error) {
+      console.error("placing chapter skills failed", error);
+    }
+  }
+  const chapter = chapterOf(book);
+  // Skills taught in lessons the class hasn't reached yet stay out of drills.
+  const later = new Set(chapter ? laterLessonSkills(chapter, book!.currentLesson ?? 0) : []);
   const chapterPrefix = chapter ? chapterSkillPrefix(book!.id, book!.currentChapter!) : null;
 
   let created = false;
   const result = await db.transaction(async (tx) => {
     await unlockNext(student.id, tx);
-    const focus = parseFocus(student);
+    const focus = parseFocus(student).filter((id) => !later.has(id));
     // Focus skills are practiced even if the curriculum hasn't reached them yet.
     if (focus.length) {
       await tx.insert(schema.studentSkills).values(focus.map((skillId) => ({ studentId: student.id, skillId }))).onConflictDoNothing();
     }
     // Following a textbook chapter replaces the regular skill path: the chapter's skills (or its written
     // problems) are the new material, and the rest of the drill reviews what's mastered.
-    const all = toStates(await skillRows(student.id, tx));
+    const all = toStates(await skillRows(student.id, tx)).filter((s) => !later.has(s.skillId));
     const followed = chapter ? all.filter((s) => s.mastered || focus.includes(s.skillId)) : all;
     const skills = chooseDrillSkills(followed.length ? followed : all, student.dailyProblems, focus);
 
@@ -154,6 +172,41 @@ export async function getOrCreateDrill(student: Student, timezone: string) {
   // Today's drill used up some of the chapter's problems; write more if it's running low.
   if (created) await refillChapterPractice(student);
   return result;
+}
+
+/** Whether a drill has problems from lessons the class hasn't reached yet. */
+async function aheadOfClass(drillId: string, studentId: string) {
+  const book = await textbookFor(studentId);
+  const chapter = book?.status === "ready" && book.currentChapter !== null ? book.chapters[book.currentChapter] : undefined;
+  if (!book || !chapter) return false;
+  const lesson = book.currentLesson ?? 0;
+  const later = new Set(laterLessonSkills(chapter, lesson));
+  return (await drillProblems(drillId)).some((p) => {
+    const at = parseLessonSkill(p.skillId);
+    return later.has(p.skillId) || (at?.textbookId === book.id && (at.chapter > book.currentChapter! || (at.chapter === book.currentChapter && at.lesson > lesson)));
+  });
+}
+
+/**
+ * Throws away today's drill if the student hasn't started it, so it's rebuilt for a new chapter or
+ * lesson. Its written practice problems go back in the queue.
+ */
+export async function resetUnstartedDrill(studentId: string, timezone: string) {
+  const db = await getDb();
+  const [drill] = await db.select().from(schema.drills)
+    .where(and(eq(schema.drills.studentId, studentId), eq(schema.drills.date, todayFor(timezone))));
+  if (!drill) return;
+  const problems = await drillProblems(drill.id);
+  if (problems.some((p) => p.tries > 0 || p.usedHint || p.answeredAt)) return;
+  await db.transaction(async (tx) => {
+    const prompts = problems.filter((p) => p.source !== "curriculum").map((p) => p.prompt);
+    if (prompts.length) {
+      await tx.update(schema.practiceProblems).set({ usedAt: null })
+        .where(and(eq(schema.practiceProblems.studentId, studentId), gte(schema.practiceProblems.usedAt, drill.createdAt),
+          inArray(schema.practiceProblems.prompt, prompts)));
+    }
+    await tx.delete(schema.drills).where(eq(schema.drills.id, drill.id));
+  });
 }
 
 export async function drillProblems(drillId: string, tx?: Tx) {

@@ -294,6 +294,8 @@ export type TextbookChapter = {
   skillIds: string[];
   /** How much of the chapter those skills cover; the rest gets practice problems Claude writes. */
   coverage: "full" | "partial" | "none";
+  /** The lesson (by position) where each of skillIds is first taught; -1 if no lesson teaches it. Filled in once the chapter is current. */
+  skillLessons?: Record<string, number>;
 };
 
 export type TextbookImage = { path: string; type: string; kind: "cover" | "toc" };

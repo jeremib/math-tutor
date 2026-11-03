@@ -32,6 +32,20 @@ export function chapterFocus(chapter: TextbookChapter): string[] {
   return chapter.skillIds.slice(0, MAX_FOCUS);
 }
 
+/**
+ * The chapter's skills that belong to lessons after the current one, so drills leave them out until
+ * the class gets there. Skills no lesson teaches (-1) or not yet placed are kept.
+ */
+export function laterLessonSkills(chapter: TextbookChapter, lesson: number): string[] {
+  const at = chapter.skillLessons ?? {};
+  return chapter.skillIds.filter((id) => (at[id] ?? -1) > lesson);
+}
+
+/** Whether the chapter's skills still need placing into its lessons. */
+export function needsSkillLessons(chapter: TextbookChapter): boolean {
+  return chapter.skillIds.length > 0 && chapter.lessons.length > 1 && chapter.skillIds.some((id) => chapter.skillLessons?.[id] === undefined);
+}
+
 /** Whether the chapter has lessons the curriculum's skills don't cover, so Claude writes problems for them. */
 export function needsChapterPractice(chapter: TextbookChapter): boolean {
   return chapter.coverage !== "full" || chapter.skillIds.length === 0;

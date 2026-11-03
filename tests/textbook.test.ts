@@ -29,7 +29,7 @@ test("chapterFocus and skill choices", () => {
   assert.deepEqual([...grades].sort(), [3, 4, 5]);
 });
 
-import { beforeLesson, chapterLessons, inLesson, lessonSkillId, parseLessonSkill, refillBelow, splitLessonSlots, spreadByLesson, textbookShare } from "../src/lib/textbook-plan.ts";
+import { beforeLesson, chapterLessons, inLesson, laterLessonSkills, needsSkillLessons, lessonSkillId, parseLessonSkill, refillBelow, splitLessonSlots, spreadByLesson, textbookShare } from "../src/lib/textbook-plan.ts";
 
 test("lesson skill ids round-trip", () => {
   const id = lessonSkillId("abc-123", 12, 3);
@@ -117,4 +117,21 @@ test("cleanGuide drops check questions whose answer isn't a choice and caps leng
   assert.equal(guide.watchOut.length, 3);
   assert.deepEqual(guide.check.map((c) => c.question), ["Which is bigger?"]);
   assert.equal(guide.videoSearch, "what is a fraction");
+});
+
+test("skills taught in later lessons stay out of drills", () => {
+  const ch = {
+    title: "Ch 5", lessons: ["5.1", "5.2", "5.3", "5.4 Multiply fractions", "5.5 Divide fractions"],
+    skillIds: ["mult", "div", "other"], coverage: "partial" as const,
+  };
+  assert.equal(needsSkillLessons(ch), true);
+  // Not placed yet: nothing is held back.
+  assert.deepEqual(laterLessonSkills(ch, 3), []);
+  const placed = { ...ch, skillLessons: { mult: 3, div: 4, other: -1 } };
+  assert.equal(needsSkillLessons(placed), false);
+  assert.deepEqual(laterLessonSkills(placed, 3), ["div"]);
+  assert.deepEqual(laterLessonSkills(placed, 4), []);
+  assert.deepEqual(laterLessonSkills(placed, 0), ["mult", "div"]);
+  // A chapter with one lesson (or none listed) has nothing to place.
+  assert.equal(needsSkillLessons({ ...ch, lessons: [] }), false);
 });
