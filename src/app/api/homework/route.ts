@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { getStudent } from "@/lib/auth";
+import { handoffPhoto } from "@/lib/handoff";
 import { saveImageField, transcribeProblem, tutorReply, TutorUnavailableError, type ImageType } from "@/lib/tutor";
 
 /** Starts a homework session from a photo and/or typed problem, and returns the tutor's first message. */
@@ -17,6 +18,13 @@ export async function POST(req: Request) {
   const photoFrom = String(form.get("photoFrom") ?? "");
   let image = await saveImageField(form, "image");
   if (image && "error" in image) return NextResponse.json({ error: image.error }, { status: 400 });
+  const handoff = String(form.get("handoff") ?? "");
+  if (!image && handoff) {
+    // A photo taken on the student's phone for this computer.
+    const sent = await handoffPhoto(handoff, student.id);
+    if (!sent) return NextResponse.json({ error: "That phone photo isn't available anymore. Take a new one." }, { status: 400 });
+    image = { imagePath: sent.imagePath!, imageType: sent.imageType as ImageType };
+  }
   if (!image && photoFrom) {
     // Reuse the photo from an earlier session, e.g. a whole page with several problems.
     const [earlier] = await db.select({ imagePath: schema.homeworkSessions.imagePath, imageType: schema.homeworkSessions.imageType })

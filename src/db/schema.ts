@@ -129,6 +129,19 @@ export const homeworkSessions = pgTable("homework_sessions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("homework_student").on(t.studentId), index("homework_image").on(t.imagePath)]);
 
+/**
+ * A link a student opens on their phone to take a homework photo for the computer they're working on.
+ * The id is a long random token: the phone isn't logged in, so knowing it is what allows the upload.
+ */
+export const photoHandoffs = pgTable("photo_handoffs", {
+  id: text("id").primaryKey(),
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  imagePath: text("image_path"),
+  imageType: text("image_type"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+}, (t) => [index("photo_handoff_student").on(t.studentId), index("photo_handoff_image").on(t.imagePath)]);
+
 export const homeworkMessages = pgTable("homework_messages", {
   id: id(),
   sessionId: text("session_id").notNull().references(() => homeworkSessions.id, { onDelete: "cascade" }),
