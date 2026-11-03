@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { getStudent } from "@/lib/auth";
-import { saveImageField, tutorReply, TutorUnavailableError, type ImageType } from "@/lib/tutor";
+import { saveImageField, transcribeProblem, tutorReply, TutorUnavailableError, type ImageType } from "@/lib/tutor";
 
 /** Starts a homework session from a photo and/or typed problem, and returns the tutor's first message. */
 export async function POST(req: Request) {
@@ -32,6 +32,16 @@ export async function POST(req: Request) {
 
   const title = text ? text.split("\n")[0].slice(0, 80) : `Photo problem · ${new Date().toLocaleDateString()}`;
   const [hw] = await db.insert(schema.homeworkSessions).values({ studentId: student.id, title, problemText: text || null, imagePath, imageType }).returning();
+
+  if (hasImage) {
+    after(async () => {
+      try {
+        await transcribeProblem(hw.id);
+      } catch (error) {
+        console.error("homework transcription failed", error);
+      }
+    });
+  }
 
   const opening = hasImage
     ? `Here's a photo of my homework problem.${text ? ` ${text}` : ""}`

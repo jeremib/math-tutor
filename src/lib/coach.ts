@@ -225,9 +225,11 @@ ${PRACTICE_RULES}`,
       { type: "text", text: "Now type out the problem, pick the skill and write the practice problems." },
     ],
   });
-  const problemStatement = result?.problem.trim().slice(0, 2000) || null;
+  const typed = result?.problem.trim().slice(0, 2000);
+  // Keeps the copy typed when the session started if this one came back empty.
+  const problemStatement = typed ? { problemStatement: typed } : {};
   if (!result || result.skillId === "none") {
-    await db.update(schema.homeworkSessions).set({ skillId: "none", problemStatement }).where(eq(schema.homeworkSessions.id, sessionId));
+    await db.update(schema.homeworkSessions).set({ skillId: "none", ...problemStatement }).where(eq(schema.homeworkSessions.id, sessionId));
     return;
   }
   const practice = (await checkedPractice(result.problems)).slice(0, 3);
@@ -237,7 +239,7 @@ ${PRACTICE_RULES}`,
         ...p, studentId: student.id, source: "homework" as const, homeworkSessionId: sessionId, skillId: result.skillId,
       })));
     }
-    await tx.update(schema.homeworkSessions).set({ skillId: result.skillId, practiceAdded: practice.length, problemStatement })
+    await tx.update(schema.homeworkSessions).set({ skillId: result.skillId, practiceAdded: practice.length, ...problemStatement })
       .where(eq(schema.homeworkSessions.id, sessionId));
   });
 }

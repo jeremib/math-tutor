@@ -2,11 +2,12 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema, DATA_DIR } from "@/db";
 import { GRADE_LABELS } from "./curriculum";
 import { awardForHomework } from "./achievements";
-import { FALLBACK, MODEL, anthropic, imageBlock, tutorError } from "./ai";
+import { FALLBACK, MODEL, anthropic, askStructured, imageBlock, tutorError } from "./ai";
 import { VISUAL_KINDS } from "./visuals";
 
 export { TutorUnavailableError } from "./ai";
@@ -138,4 +139,31 @@ export async function tutorReply(
   const newlySolved = solved && session.status !== "solved";
   const rewards = newlySolved ? await awardForHomework(student.id, timezone, session.id) : null;
   return { reply, solved, newlySolved, rewards };
+}
+
+/**
+ * Types out the problem a new session is about (from the photo and the student's note), so lists and
+ * teach-back can show the question. Kept if Claude retypes it more exactly once the problem is solved.
+ */
+export async function transcribeProblem(sessionId: string) {
+  const db = await getDb();
+  const [session] = await db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.id, sessionId));
+  if (!session?.imagePath || !session.imageType || session.problemStatement) return;
+  const result = await askStructured({
+    system: "A student shared a photo of their math homework, maybe with a note saying which problem they're working on. Type out that one problem.",
+    schema: z.object({
+      problem: z.string().describe(
+        "The problem, typed out word for word as it appears in the photo, with its number if it has one. If the photo has several problems and the note says which, only that one; if it's unclear which, the first. Plain text; write math like 3/4 or x^2.",
+      ),
+    }),
+    effort: "low",
+    content: [
+      uploadBlock(session.imagePath, session.imageType),
+      { type: "text", text: session.problemText ? `The student's note: ${session.problemText}` : "The student didn't add a note." },
+    ],
+  });
+  const problem = result?.problem.trim().slice(0, 2000);
+  if (!problem) return;
+  await db.update(schema.homeworkSessions).set({ problemStatement: problem })
+    .where(and(eq(schema.homeworkSessions.id, sessionId), isNull(schema.homeworkSessions.problemStatement)));
 }
