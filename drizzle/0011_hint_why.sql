@@ -1,0 +1,1 @@
+ALTER TABLE "drill_problems" ADD COLUMN "hint_why" text;

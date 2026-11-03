@@ -258,6 +258,7 @@ export function problemView(p: typeof schema.drillProblems.$inferSelect, lessons
     skillName: topicName(p, lessons),
     tries: p.tries, usedHint: p.usedHint, lastAnswer: p.lastAnswer, done, solved: p.solved,
     hint: p.usedHint || done ? p.hint : null,
+    hintWhy: p.usedHint || done ? p.hintWhy : null,
     answer: done ? p.answer : null,
     explanation: done ? p.explanation : null,
     visual: p.usedHint || done ? p.visual : null,

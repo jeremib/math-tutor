@@ -1,6 +1,17 @@
 // Pure rules for practice problems Claude writes: validation, drill mixing and misconception resolution.
 import { checkAnswer, parseRational } from "./answers.ts";
 
+/**
+ * True if an explanation meant to go with a hint gives the answer away, by stating it as the
+ * result of a step ("= 12", "equals 12") or saying "the answer is".
+ */
+export function revealsAnswer(text: string, answer: string): boolean {
+  if (/\banswer is\b/i.test(text)) return true;
+  const escaped = answer.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return false;
+  return new RegExp(`(=|\\bequals)\\s*${escaped}(?![\\d]|[/.]\\d)`, "i").test(text);
+}
+
 /** Targeted practice problems a student must get right on the first try to clear a misconception. */
 export const RESOLVE_AFTER = 2;
 /** Most unused practice problems queued for one misconception at a time. */

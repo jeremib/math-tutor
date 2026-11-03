@@ -35,6 +35,7 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
   const [sessionBadges, setSessionBadges] = useState<AwardSummary["badges"]>([]);
   const [showWork, setShowWork] = useState(false);
   const [diagnosing, setDiagnosing] = useState<string | null>(null);
+  const [explaining, setExplaining] = useState<string | null>(null);
   const scratch = useRef<ScratchpadHandle>(null);
 
   const problem = problems[index];
@@ -61,6 +62,7 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
         if (data.rewards.leveledUp || data.rewards.badges.length || data.rewards.messages.length) setAward(data.rewards);
       }
       if (aiEnabled && data.problem.canDiagnose && !data.problem.feedbackStatus) diagnose(data.problem.id);
+      if (aiEnabled && body.type === "hint" && data.problem.hint && !data.problem.hintWhy) explainHint(data.problem.id);
       if (body.type === "answer") {
         if (data.correct) setFeedback({ kind: "right", text: `${CHEERS[Math.floor(Math.random() * CHEERS.length)]}${xp ? ` +${xp} XP` : ""}` });
         else if (data.problem.done) setFeedback({ kind: "wrong", text: `Not quite. The answer is ${data.problem.answer}.` });
@@ -71,6 +73,20 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
       setFeedback({ kind: "retry", text: "Something went wrong. Try again." });
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Asks Math Buddy why the hint works. Without it, the hint alone still shows. */
+  async function explainHint(problemId: string) {
+    setExplaining(problemId);
+    try {
+      const res = await fetch(`/api/drill/${problemId}/hint-why`, { method: "POST" });
+      const data = res.ok ? await res.json() as { why: string | null } : null;
+      if (data?.why) setProblems((ps) => ps.map((p) => (p.id === problemId ? { ...p, hintWhy: data.why } : p)));
+    } catch {
+      // The hint is still there.
+    } finally {
+      setExplaining(null);
     }
   }
 
@@ -174,8 +190,12 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
 
         {problem.hint && (
           <div className="mt-4 flex items-start gap-2 rounded-xl bg-brand-50 px-4 py-3 text-brand-700">
-            <p className="flex-1">💡 <MathText text={problem.hint} /></p>
-            <SpeakButton text={problem.hint} />
+            <div className="flex-1">
+              <p>💡 <MathText text={problem.hint} /></p>
+              {problem.hintWhy && <p className="mt-2 border-t border-brand-100 pt-2 text-slate-700"><span className="font-semibold text-brand-700">Why this works: </span><MathText text={problem.hintWhy} /></p>}
+              {explaining === problem.id && !problem.hintWhy && <p className="mt-2 animate-pulse text-sm text-brand-500">🤔 Math Buddy is explaining why…</p>}
+            </div>
+            <SpeakButton text={problem.hintWhy ? `${problem.hint} Why this works: ${problem.hintWhy}` : problem.hint} />
           </div>
         )}
         {problem.visual && <Visual visual={problem.visual} className="mt-3" />}

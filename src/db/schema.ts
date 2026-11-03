@@ -109,6 +109,8 @@ export const drillProblems = pgTable("drill_problems", {
   /** Claude's note to the student about their wrong answer. */
   feedback: text("feedback"),
   feedbackStatus: text("feedback_status", { enum: ["pending", "done", "failed"] }),
+  /** Claude's explanation of why the hint works, written when the student asks for the hint. */
+  hintWhy: text("hint_why"),
 }, (t) => [index("drill_problems_drill").on(t.drillId), index("drill_problems_work_image").on(t.workImagePath)]);
 
 export const homeworkSessions = pgTable("homework_sessions", {

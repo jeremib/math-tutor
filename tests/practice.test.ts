@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkAnswer } from "../src/lib/answers.ts";
-import { mixIntoDrill, normalizeTag, practiceSlots, validateGenerated } from "../src/lib/practice.ts";
+import { mixIntoDrill, normalizeTag, practiceSlots, revealsAnswer, validateGenerated } from "../src/lib/practice.ts";
 
 const base = { prompt: "What is 2/3 + 1/6?", hint: "Find a common denominator.", explanation: "4/6 + 1/6 = 5/6" };
 
@@ -56,4 +56,13 @@ test("paces quiz practice over the days before the quiz", async () => {
   assert.deepEqual(choosePractice(9, 4, 30, 5), { quiz: 1, other: 3 });
   // No quiz: the usual third.
   assert.deepEqual(choosePractice(9, 0, 0, 5), { quiz: 0, other: 3 });
+});
+
+test("revealsAnswer catches a hint explanation that states the answer", () => {
+  assert.equal(revealsAnswer("So 3 × 4 = 12.", "12"), true);
+  assert.equal(revealsAnswer("That equals 3/2 in the end.", "3/2"), true);
+  assert.equal(revealsAnswer("The answer is close to 10.", "9"), true);
+  assert.equal(revealsAnswer("Each group has 4 dots, and 3 groups is what we count.", "12"), false);
+  assert.equal(revealsAnswer("Multiply both sides by 5/3 = the reciprocal.", "-3/2"), false);
+  assert.equal(revealsAnswer("Then 2 = 2 checks out, so x = 120 isn't it.", "12"), false);
 });
