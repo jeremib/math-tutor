@@ -8,6 +8,7 @@ import { Celebration } from "@/components/Celebration";
 import { Scratchpad, type ScratchpadHandle } from "@/components/Scratchpad";
 import { Visual } from "@/components/Visual";
 import { MicButton, SpeakButton, useReadAloud } from "@/components/Voice";
+import { MathText } from "@/components/MathText";
 
 type Problem = ReturnType<typeof problemView>;
 
@@ -116,8 +117,8 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
         <ul className="mx-auto mt-6 max-w-md space-y-2 text-left">
           {problems.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-              <span>{p.prompt}</span>
-              <span className="whitespace-nowrap font-semibold">{p.solved ? "✅" : "❌"} {p.answer}</span>
+              <span><MathText text={p.prompt} /></span>
+              <span className="whitespace-nowrap font-semibold">{p.solved ? "✅" : "❌"} {p.answer && <MathText text={p.answer} />}</span>
             </li>
           ))}
         </ul>
@@ -141,7 +142,7 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
           {SOURCE_LABELS[problem.source] && <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-brand-700">{SOURCE_LABELS[problem.source]}</span>}
         </div>
         <div className="my-6 flex items-center justify-center gap-3">
-          <div className="text-center text-3xl font-extrabold sm:text-4xl">{problem.prompt}</div>
+          <div className="text-center text-3xl font-extrabold sm:text-4xl"><MathText text={problem.prompt} /></div>
           <SpeakButton text={problem.prompt} />
         </div>
 
@@ -164,7 +165,7 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
 
         {feedback && (
           <div className={`mt-5 rounded-xl px-4 py-3 text-center text-lg font-bold ${feedback.kind === "right" ? "bg-emerald-50 text-emerald-700" : feedback.kind === "wrong" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
-            {feedback.text}
+            <MathText text={feedback.text} />
           </div>
         )}
         {mastered && (
@@ -173,14 +174,14 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
 
         {problem.hint && (
           <div className="mt-4 flex items-start gap-2 rounded-xl bg-brand-50 px-4 py-3 text-brand-700">
-            <p className="flex-1">💡 {problem.hint}</p>
+            <p className="flex-1">💡 <MathText text={problem.hint} /></p>
             <SpeakButton text={problem.hint} />
           </div>
         )}
         {problem.visual && <Visual visual={problem.visual} className="mt-3" />}
         {problem.done && problem.explanation && (
           <div className="mt-3 flex items-center justify-center gap-2 text-slate-600">
-            <p className="text-center">{problem.explanation}</p>
+            <p className="text-center"><MathText text={problem.explanation} /></p>
             <SpeakButton text={problem.explanation} />
           </div>
         )}
@@ -193,7 +194,7 @@ export function DrillRunner({ initialProblems, name, aiEnabled }: { initialProbl
               Math Buddy noticed
               <SpeakButton text={problem.feedback} />
             </div>
-            {problem.feedback}
+            <MathText text={problem.feedback} />
           </div>
         )}
 

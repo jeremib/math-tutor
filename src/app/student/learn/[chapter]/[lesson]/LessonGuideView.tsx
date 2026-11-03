@@ -5,6 +5,7 @@ import type { LessonGuide } from "@/db/schema";
 import { splitVisuals } from "@/lib/visuals";
 import { Visual } from "@/components/Visual";
 import { SpeakButton } from "@/components/Voice";
+import { MathText } from "@/components/MathText";
 
 /** Text with [[VISUAL]] lines drawn as pictures. */
 function Body({ text }: { text: string }) {
@@ -12,7 +13,7 @@ function Body({ text }: { text: string }) {
     <div className="space-y-2">
       {splitVisuals(text).map((seg, i) => "visual" in seg
         ? <Visual key={i} visual={seg.visual} />
-        : seg.text.split(/\n+/).map((line, j) => <p key={`${i}-${j}`}>{line}</p>))}
+        : seg.text.split(/\n+/).map((line, j) => <p key={`${i}-${j}`}><MathText text={line} /></p>))}
     </div>
   );
 }
@@ -24,16 +25,16 @@ function Example({ example, n }: { example: LessonGuide["examples"][number]; n: 
   return (
     <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
       <div className="flex items-start justify-between gap-3">
-        <p><span className="font-bold text-brand-700">Example {n}: </span>{example.problem}</p>
+        <p><span className="font-bold text-brand-700">Example {n}: </span><MathText text={example.problem} /></p>
         <SpeakButton always text={[example.problem, ...example.steps.slice(0, shown)].join(" ")} />
       </div>
       <ol className="mt-3 space-y-2">
         {example.steps.slice(0, shown).map((s, i) => (
-          <li key={i} className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">{i + 1}</span><span>{s}</span></li>
+          <li key={i} className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">{i + 1}</span><span><MathText text={s} /></span></li>
         ))}
       </ol>
       {done
-        ? <p className="mt-3 font-bold text-emerald-700">Answer: {example.answer}</p>
+        ? <p className="mt-3 font-bold text-emerald-700">Answer: <MathText text={example.answer} /></p>
         : <button type="button" onClick={() => setShown(shown + 1)} className="btn-secondary mt-3">{shown ? "Next step" : "Show me how"} →</button>}
     </div>
   );
@@ -45,7 +46,7 @@ function Check({ q, n }: { q: LessonGuide["check"][number]; n: number }) {
   const right = picked === q.answer;
   return (
     <div>
-      <p className="font-semibold">{n}. {q.question}</p>
+      <p className="font-semibold">{n}. <MathText text={q.question} /></p>
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         {q.choices.map((c, i) => {
           const tone = picked === null ? "bg-white ring-slate-300 hover:bg-slate-50"
@@ -53,13 +54,13 @@ function Check({ q, n }: { q: LessonGuide["check"][number]; n: number }) {
             : i === picked ? "bg-rose-50 ring-rose-300 text-rose-900" : "bg-white ring-slate-200 text-slate-400";
           return (
             <button key={i} type="button" disabled={right} onClick={() => setPicked(i)}
-              className={`rounded-xl px-4 py-2.5 text-left font-semibold ring-1 transition ${tone}`}>{c}</button>
+              className={`rounded-xl px-4 py-2.5 text-left font-semibold ring-1 transition ${tone}`}><MathText text={c} /></button>
           );
         })}
       </div>
       {picked !== null && (
         <p className={`mt-2 text-sm ${right ? "text-emerald-700" : "text-rose-700"}`}>
-          {right ? `✅ Yes! ${q.why}` : "Not quite. Look back at the lesson and try another one."}
+          {right ? <>✅ Yes! <MathText text={q.why} /></> : "Not quite. Look back at the lesson and try another one."}
         </p>
       )}
     </div>
@@ -75,7 +76,7 @@ export function LessonGuideView({ guide }: { guide: LessonGuide }) {
         <span className="text-3xl">💡</span>
         <div className="flex-1">
           <h2 className="text-sm font-bold uppercase tracking-wide text-brand-700">The big idea</h2>
-          <p className="mt-1 text-lg font-semibold">{guide.bigIdea}</p>
+          <p className="mt-1 text-lg font-semibold"><MathText text={guide.bigIdea} /></p>
         </div>
         <SpeakButton always text={guide.bigIdea} />
       </section>
@@ -100,7 +101,7 @@ export function LessonGuideView({ guide }: { guide: LessonGuide }) {
       {guide.watchOut.length > 0 && (
         <section className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200">
           <h2 className="font-bold text-amber-900">⚠️ Watch out for</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-amber-900">{guide.watchOut.map((w, i) => <li key={i}>{w}</li>)}</ul>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-amber-900">{guide.watchOut.map((w, i) => <li key={i}><MathText text={w} /></li>)}</ul>
         </section>
       )}
 

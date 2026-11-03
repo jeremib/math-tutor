@@ -5,6 +5,7 @@ import { Celebration } from "@/components/Celebration";
 import { MicButton } from "@/components/Voice";
 import { RACE_SECONDS, raceProblems, type RaceOp } from "@/lib/race";
 import type { AwardSummary } from "@/lib/achievements";
+import { MathText } from "@/components/MathText";
 
 type Op = { op: RaceOp; name: string; symbol: string; best: number | null };
 type Result = { attempted: number; correct: number; previousBest: number | null; newBest: boolean; rewards: AwardSummary | null };
@@ -134,7 +135,7 @@ export function RaceRunner({ ops: initialOps }: { ops: Op[] }) {
             <div className="py-10 text-7xl font-extrabold text-brand-600">{countdown}</div>
           ) : current ? (
             <>
-              <div className="py-6 text-5xl font-extrabold sm:text-6xl">{current.prompt} = ?</div>
+              <div className="py-6 text-5xl font-extrabold sm:text-6xl"><MathText text={current.prompt} /> = ?</div>
               <form onSubmit={(e) => { e.preventDefault(); submit(typed); }} className="mx-auto flex max-w-xs gap-2">
                 <input ref={input} value={typed} onChange={(e) => type(e.target.value)} inputMode="numeric" autoComplete="off"
                   className="input text-center text-3xl font-bold" aria-label="Your answer" />

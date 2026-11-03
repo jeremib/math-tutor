@@ -22,6 +22,7 @@ import { TestPrepList } from "@/components/TestPrepList";
 import { textbookFor, textbookProgress } from "@/lib/textbook";
 import { BookProgress } from "@/components/BookProgress";
 import { LoginLink } from "@/components/LoginLink";
+import { MathText } from "@/components/MathText";
 
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -272,7 +273,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               <ul className="space-y-2 text-sm">
                 {misses.map(({ p, date }) => (
                   <li key={p.id} className="rounded-lg bg-slate-50 p-2">
-                    <div className="font-semibold">{p.prompt}</div>
+                    <div className="font-semibold"><MathText text={p.prompt} /></div>
                     <div className="text-slate-500">
                       Answered {p.lastAnswer ?? "–"} · correct: {p.answer} · {SKILLS_BY_ID.get(p.skillId)?.name} · {date}
                       {p.usedHint ? " · used hint" : ""}

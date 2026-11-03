@@ -1,6 +1,7 @@
 import { splitVisuals } from "@/lib/visuals";
 import { Visual } from "./Visual";
 import { SpeakButton } from "./Voice";
+import { MathText } from "@/components/MathText";
 
 export type ChatMessage = { id: string; role: "user" | "assistant"; content: string; imageUrl?: string | null };
 
@@ -19,7 +20,7 @@ export function ChatLog({ messages, studentName }: { messages: ChatMessage[]; st
               <img src={m.imageUrl} alt={`${studentName}'s work`} className="mb-2 max-h-64 rounded-lg bg-white" />
             )}
             {m.role === "assistant"
-              ? splitVisuals(m.content).map((seg, i) => ("visual" in seg ? <Visual key={i} visual={seg.visual} className="my-2" /> : <p key={i} className="[&+p]:mt-2">{seg.text}</p>))
+              ? splitVisuals(m.content).map((seg, i) => ("visual" in seg ? <Visual key={i} visual={seg.visual} className="my-2" /> : <p key={i} className="[&+p]:mt-2"><MathText text={seg.text} /></p>))
               : m.content}
           </div>
         </div>
