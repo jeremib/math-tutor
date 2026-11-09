@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Bricolage_Grotesque, Gochi_Hand } from "next/font/google";
 import { Logo } from "@/components/ui";
+import { MathText } from "@/components/MathText";
 import { getParent, getStudent } from "@/lib/auth";
 import { BADGES } from "@/lib/gamification";
 import "./landing.css";
@@ -28,6 +29,7 @@ export default async function Home() {
       <MistakeCoach />
       <ParentView />
       <TextbookPlan />
+      <TestPrep />
       <Practice />
       <Setup />
 
@@ -112,7 +114,7 @@ function TutorDemo() {
 const RULES: { title: string; body: string; example: Line[] }[] = [
   {
     title: "Reads the worksheet",
-    body: "Kids take a photo or type the problem. If the page has several problems, it asks which one to start with. If the photo is blurry or cut off, it asks for a clearer one.",
+    body: "Kids take a photo or type the problem. On a laptop, they can scan a code and snap the page with a phone. If the page has several problems, it asks which one to start with. If the photo is blurry or cut off, it asks for a clearer one.",
     example: [{ who: "tutor", text: "I can see problems 5 to 8. Which one do you want to work on first?" }],
   },
   {
@@ -206,14 +208,14 @@ function MistakeCoach() {
       <figure className="relative mx-auto w-full max-w-md" aria-label="Example of a diagnosed drill mistake">
         <div className="rounded-[28px] bg-white p-6 shadow-xl ring-1 ring-slate-200">
           <p className="text-sm font-semibold text-slate-400">Problem 3 of 8 · Adding unlike fractions</p>
-          <p className="display my-5 text-center text-4xl font-extrabold">1/3 + 1/4 = ?</p>
+          <p className="display my-5 text-center text-4xl font-extrabold"><MathText text="1/3 + 1/4 = ?" /></p>
           <div className="photo relative rounded-xl p-4 ring-1 ring-slate-200">
             <p className="hand text-2xl leading-relaxed">1 + 1 = 2<br />3 + 4 = 7<br />so 2/7</p>
             <span className="absolute right-3 top-3 rounded bg-slate-900/80 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">Their work</span>
           </div>
           <div className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-violet-900 ring-1 ring-violet-200">
             <div className="mb-0.5 text-xs font-bold uppercase tracking-wide text-violet-500">Math Buddy noticed</div>
-            You added the tops and the bottoms. The bottoms tell you the size of the pieces, so make them match first: 4/12 + 3/12.
+            <MathText text="You added the tops and the bottoms. The bottoms tell you the size of the pieces, so make them match first: 4/12 + 3/12." />
           </div>
         </div>
         <div className="hand absolute -bottom-6 -right-2 rotate-2 rounded-lg bg-[#fff6c7] px-4 py-2 text-xl shadow-md sm:-right-8">
@@ -269,7 +271,7 @@ function ParentView() {
           Every homework session is saved with the photo and the full chat, so you can see where your child got stuck and how they got unstuck.
         </p>
         <p className="mt-3 text-lg text-slate-600">
-          You&rsquo;ll also see the mistakes Math Buddy keeps noticing, like &ldquo;adds the tops and the bottoms&rdquo;, and when each one is fixed. You decide whether the homework helper is on for each child.
+          You&rsquo;ll also see the mistakes Math Buddy keeps noticing, like &ldquo;adds the tops and the bottoms&rdquo;, and when each one is fixed, plus how ready they looked on each test prep. You decide whether the AI helper is on for each child.
         </p>
       </div>
     </section>
@@ -280,7 +282,8 @@ const TEXTBOOK_POINTS = [
   ["Finds the chapters", "Type the book's title, or add a photo of the cover. Math Buddy looks up its table of contents online and matches each chapter to practice skills."],
   ["Or reads your photos", "If a book can't be found online, take photos of the table of contents pages and Math Buddy reads the chapters from them."],
   ["Fills the gaps", "For lessons the built-in skills don't cover, like measurement, Math Buddy writes practice problems and double-checks every answer."],
-  ["You stay in charge", "Move to the next chapter when the class does, and change which skills go with any chapter."],
+  ["Teaches each lesson", "Every lesson has a short read-first lesson at your child's grade: the big idea, pictures, worked examples shown step by step, and a quick check. It can read itself aloud."],
+  ["You stay in charge", "Set the chapter and lesson the class is on, or skip ahead. Drills center on that lesson, and progress shows chapter by chapter, lesson by lesson."],
 ];
 
 const CHAPTERS = [
@@ -297,7 +300,7 @@ function TextbookPlan() {
         <p className="hand text-2xl text-brand-600">in step with school</p>
         <h2 className="display mt-2 text-4xl font-extrabold leading-tight sm:text-5xl">Drills that follow their textbook.</h2>
         <p className="mt-4 text-lg text-slate-600">
-          Tell Math Buddy which math book your child uses at school. Pick the chapter the class is on, and daily drills practice what they&rsquo;re learning this week.
+          Tell Math Buddy which math book your child uses at school. Pick the chapter and lesson the class is on, and daily drills practice what they&rsquo;re learning this week.
         </p>
         <dl className="mt-8 space-y-5">
           {TEXTBOOK_POINTS.map(([title, body]) => (
@@ -344,6 +347,81 @@ function TextbookPlan() {
   );
 }
 
+const TEST_PREP_POINTS = [
+  ["Pick what's on the test", "Your child ticks the chapters or lessons their test covers, straight from their textbook."],
+  ["Big ideas first", "A review sheet sums up each idea in a sentence or two, with tips like mistakes to avoid and how to check an answer."],
+  ["Practice like the real thing", "Test-style problems mix the ideas together. Every answer is double-checked before your child sees it."],
+  ["Help without giving it away", "A hint comes with the idea to remember. A wrong first try gets a test tip before the second one."],
+];
+
+const READINESS = [
+  { name: "Dividing fractions", score: 100, ok: true },
+  { name: "Multiplicative inverses", score: 50, ok: false },
+  { name: "Solving equations", score: 83, ok: true },
+];
+
+function TestPrep() {
+  return (
+    <section className="border-y border-[#d5e2f3] bg-white/80">
+      <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-20 lg:grid-cols-2">
+        <figure className="relative order-2 mx-auto w-full max-w-md lg:order-1" aria-label="Example test prep readiness report">
+          <div className="rounded-[28px] bg-white p-6 shadow-xl ring-1 ring-slate-200">
+            <p className="text-sm font-semibold text-slate-400">🎯 Test prep · Chapter 5: Fractions</p>
+            <div className="mt-4 flex items-center gap-4 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200">
+              <div className="text-center">
+                <p className="display text-5xl font-extrabold text-amber-900">78%</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">ready</p>
+              </div>
+              <p className="text-sm text-amber-900">
+                <span className="display block text-lg font-extrabold">💪 Almost there</span>
+                Strong on dividing fractions. Review flipping a fraction to undo it, then try a few more.
+              </p>
+            </div>
+            <ul className="mt-5 space-y-3">
+              {READINESS.map((c) => (
+                <li key={c.name}>
+                  <div className="mb-1 flex justify-between text-sm font-semibold">
+                    <span>{c.ok ? "✅" : "🔁"} {c.name}</span>
+                    <span className="text-slate-400">{c.score}%</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-slate-100">
+                    <div className={`h-2.5 rounded-full ${c.ok ? "bg-emerald-500" : "bg-brand-500"}`} style={{ width: `${c.score}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-5 rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+              🧠 Test tip: <MathText text="to undo 3/5 next to y, multiply both sides by 5/3." />
+            </p>
+          </div>
+          <div className="hand absolute -bottom-6 -right-2 rotate-2 rounded-lg bg-[#fff6c7] px-4 py-2 text-xl shadow-md sm:-right-8">
+            practice my weak spots 🔁
+          </div>
+          <figcaption className="sr-only">
+            A readiness report: 78% ready overall, with a score for each idea, a note on what to review, and a button to practice the weak spot.
+          </figcaption>
+        </figure>
+
+        <div className="order-1 lg:order-2">
+          <p className="hand text-2xl text-brand-600">before the big test</p>
+          <h2 className="display mt-2 text-4xl font-extrabold leading-tight sm:text-5xl">Know they&rsquo;re ready before test day.</h2>
+          <p className="mt-4 text-lg text-slate-600">
+            Test prep drills the chapters a test covers, then shows how ready your child looks, idea by idea, with what to review and a link back to each lesson.
+          </p>
+          <dl className="mt-8 space-y-5">
+            {TEST_PREP_POINTS.map(([title, body]) => (
+              <div key={title}>
+                <dt className="display text-lg font-bold">{title}</dt>
+                <dd className="mt-1 text-slate-600">{body}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 const FRACTIONS_PATH = [
   { name: "Fractions of a group", state: "mastered" },
   { name: "Equivalent fractions", state: "mastered" },
@@ -353,7 +431,7 @@ const FRACTIONS_PATH = [
 
 function Practice() {
   return (
-    <section className="border-y border-[#d5e2f3] bg-white/80">
+    <section>
       <div className="mx-auto max-w-6xl px-4 py-20">
         <p className="hand text-2xl text-brand-600">and every day</p>
         <h2 className="display mt-2 max-w-3xl text-4xl font-extrabold leading-tight sm:text-5xl">A few problems a day that move up with them.</h2>
@@ -362,7 +440,7 @@ function Practice() {
           <div className="card">
             <h3 className="display text-2xl font-bold">Daily drills</h3>
             <p className="mt-2 text-slate-600">
-              Each set focuses on the skill your child is learning now, mixed with review. They get two tries, a hint if they want one, and a worked explanation when they miss.
+              Each set focuses on what your child is learning now, mixed with review. They get two tries, a hint that explains why it works, and a worked explanation when they miss. Fractions show stacked, like in their book.
               Once a skill is mastered, the next one unlocks.
             </p>
             <ol className="mt-6 space-y-2" aria-label="Example skill path">
@@ -404,7 +482,7 @@ function Practice() {
 const STEPS = [
   ["Create your family account", "Sign up as a parent. Another parent can join the same family."],
   ["Add each child", "Choose a username and PIN, and set their grade. Add their school textbook so drills follow along, or pick focus skills yourself."],
-  ["Kids log in with your family code", "They enter a code like OWL-4821 with their username and PIN. No email needed."],
+  ["Kids log in with your family code", "They enter a code like OWL-4821 with their username and PIN, or open their own login link and type just the PIN. No email needed."],
 ];
 
 function Setup() {

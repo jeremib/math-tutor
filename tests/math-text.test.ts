@@ -10,5 +10,6 @@ test("splitFractions stacks fractions, mixed numbers and variable fractions", ()
 });
 
 test("splitFractions leaves dates, decimals, units and words alone", () => {
-  for (const s of ["on 10/12/2025", "1.5/2", "60 km/h", "and/or", "w/o help"]) assert.deepEqual(splitFractions(s), [{ text: s }]);
+  assert.deepEqual(splitFractions("multiply by 5/3."), [{ text: "multiply by " }, { num: "5", den: "3" }, { text: "." }]);
+  for (const s of ["on 10/12/2025", "1/2.5", "1.5/2", "60 km/h", "and/or", "w/o help"]) assert.deepEqual(splitFractions(s), [{ text: s }]);
 });
