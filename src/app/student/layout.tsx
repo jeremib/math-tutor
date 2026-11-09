@@ -13,7 +13,7 @@ export default async function StudentLayout({ children }: { children: React.Reac
   const checkIn = await dailyCheckIn(student.id, family.timezone);
   const { level, xp } = levelInfo(await totalXp(await getDb(), student.id));
   const links = [{ href: "/student", label: "Home" }, { href: "/student/drill", label: "Daily drill" }];
-  if (student.aiEnabled) links.push({ href: "/student/homework", label: "Homework help" }, { href: "/student/quiz", label: "Quiz prep" });
+  if (student.aiEnabled) links.push({ href: "/student/homework", label: "Homework help" }, { href: "/student/test-prep", label: "Test prep" });
   links.push({ href: "/student/race", label: "Race" }, { href: "/student/trophies", label: "Trophies" });
   return (
     <VoiceProvider enabled={student.voiceEnabled}>

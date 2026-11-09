@@ -198,7 +198,7 @@ export const xpEvents = pgTable("xp_events", {
   id: id(),
   studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
   kind: text("kind", {
-    enum: ["check_in", "problem", "drill", "perfect_drill", "mastery", "homework", "weekly_goal", "explain", "race"],
+    enum: ["check_in", "problem", "drill", "perfect_drill", "mastery", "homework", "weekly_goal", "explain", "race", "test_prep"],
   }).notNull(),
   amount: integer("amount").notNull(),
   /** Unique per student, so the same achievement can never pay out twice. */
@@ -352,3 +352,59 @@ export const lessonGuides = pgTable("lesson_guides", {
   guide: jsonb("guide").$type<LessonGuide>().notNull(),
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("lesson_guides_skill").on(t.skillId)]);
+
+/** One idea a chapter test prep drills, with what to remember about it. */
+export type ChapterTestConcept = {
+  name: string;
+  /** The textbook lesson to review for it. */
+  chapter: number;
+  lesson: number;
+  keyIdea: string;
+  tips: string[];
+};
+
+/** How ready a student looks after a chapter test prep. */
+export type ChapterTestResult = {
+  /** 0–1 overall, and per concept in concept order. */
+  score: number;
+  level: "ready" | "almost" | "review";
+  concepts: { score: number; right: number; total: number }[];
+  /** Claude's note to the student on what to review, or a plain fallback. */
+  advice: string;
+};
+
+/** A test prep session a student builds from chapters and lessons of their textbook. */
+export const chapterTests = pgTable("chapter_tests", {
+  id: id(),
+  studentId: text("student_id").notNull().references(() => students.id, { onDelete: "cascade" }),
+  textbookId: text("textbook_id").notNull().references(() => textbooks.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  /** The lessons the student picked, by chapter and lesson index. */
+  lessons: jsonb("lessons").$type<{ chapter: number; lesson: number }[]>().notNull(),
+  concepts: jsonb("concepts").$type<ChapterTestConcept[]>().notNull().default([]),
+  status: text("status", { enum: ["pending", "ready", "failed"] }).notNull().default("pending"),
+  result: jsonb("result").$type<ChapterTestResult>(),
+  createdAt: createdAt(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (t) => [index("chapter_tests_student").on(t.studentId)]);
+
+export const chapterTestProblems = pgTable("chapter_test_problems", {
+  id: id(),
+  testId: text("test_id").notNull().references(() => chapterTests.id, { onDelete: "cascade" }),
+  position: integer("position").notNull(),
+  /** Index into the test's concepts. */
+  concept: integer("concept").notNull(),
+  prompt: text("prompt").notNull(),
+  answer: text("answer").notNull(),
+  answerKind: text("answer_kind", { enum: ["number", "remainder"] }).notNull(),
+  hint: text("hint").notNull(),
+  explanation: text("explanation").notNull(),
+  tries: integer("tries").notNull().default(0),
+  usedHint: boolean("used_hint").notNull().default(false),
+  lastAnswer: text("last_answer"),
+  wrongAnswers: jsonb("wrong_answers").$type<string[]>().notNull().default([]),
+  /** Set once the problem is finished. */
+  solved: boolean("solved"),
+  firstTryCorrect: boolean("first_try_correct"),
+  answeredAt: timestamp("answered_at", { withTimezone: true }),
+}, (t) => [index("chapter_test_problems_test").on(t.testId)]);

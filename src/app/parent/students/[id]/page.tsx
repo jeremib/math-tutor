@@ -23,6 +23,9 @@ import { textbookFor, textbookProgress } from "@/lib/textbook";
 import { BookProgress } from "@/components/BookProgress";
 import { LoginLink } from "@/components/LoginLink";
 import { MathText } from "@/components/MathText";
+import { chapterTestsFor } from "@/lib/chapter-test";
+import { weakConceptNames } from "@/lib/chapter-test-plan";
+import { READINESS_LABELS } from "@/components/ReadinessReport";
 
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -33,7 +36,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
   const db = await getDb();
   const focus = new Set(parseFocus(student));
   const today = localDate(family.timezone);
-  const [stats, game, homework, misses, noticed, preps, raceBests, textbook, bookProgress] = await Promise.all([
+  const [stats, game, homework, misses, noticed, preps, raceBests, textbook, bookProgress, chapterTests] = await Promise.all([
     studentStats(student, family.timezone),
     gameProfile(student, family.timezone),
     db.select().from(schema.homeworkSessions).where(eq(schema.homeworkSessions.studentId, student.id))
@@ -49,6 +52,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
       .where(and(eq(schema.factRaces.studentId, student.id), isNotNull(schema.factRaces.finishedAt))).groupBy(schema.factRaces.op),
     textbookFor(student.id),
     textbookProgress(student.id),
+    chapterTestsFor(student.id, 5),
   ]);
   const chapter = textbook?.status === "ready" && textbook.currentChapter !== null ? textbook.chapters[textbook.currentChapter] : null;
   const explained = await latestExplanations(student.id, [...noticed.map((m) => m.id), ...homework.map((h) => h.id)]);
@@ -231,6 +235,24 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                 A lesson or skill turns green once it&apos;s mastered (at least 8 answered, mostly right lately); a chapter gets ✅ when all of them are.
               </p>
               <BookProgress progress={bookProgress} />
+              {chapterTests.some((t) => t.result) && (
+                <div className="mt-6 border-t border-slate-100 pt-4">
+                  <h3 className="mb-2 font-bold">🎯 Test prep</h3>
+                  <ul className="space-y-3 text-sm">
+                    {chapterTests.filter((t) => t.result).map((t) => (
+                      <li key={t.id}>
+                        <div className="flex justify-between gap-3">
+                          <span className="font-semibold">{t.title}</span>
+                          <span className="shrink-0">{READINESS_LABELS[t.result!.level].emoji} {Math.round(t.result!.score * 100)}% ready · {t.finishedAt?.toLocaleDateString()}</span>
+                        </div>
+                        <p className="text-slate-500">
+                          {weakConceptNames(t.concepts, t.result!).length ? `To review: ${weakConceptNames(t.concepts, t.result!).join(", ")}` : "Ready on every idea."}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
           <SkillsList show={!bookProgress}>

@@ -16,7 +16,11 @@ export const XP = {
   explained: 15,
   /** Per correct answer in a fact race, up to RACE_XP_CAP per race. */
   raceCorrect: 1,
+  /** Finishing a chapter test prep, up to TEST_PREP_XP_PER_DAY a day. */
+  testPrep: 30,
 } as const;
+
+export const TEST_PREP_XP_PER_DAY = 2;
 
 /** Race XP is capped per race and per day so racing doesn't crowd out the daily drill. */
 export const RACE_XP_CAP = 25;

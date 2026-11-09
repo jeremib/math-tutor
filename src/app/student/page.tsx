@@ -71,6 +71,13 @@ export default async function StudentHome() {
             <p className="text-slate-600">{bookLessons[lessonAt]}: read it, watch examples worked out and try a quick check.</p>
           </Link>
         )}
+        {student.aiEnabled && book && (
+          <Link href="/student/test-prep" className="card block transition hover:-translate-y-0.5">
+            <div className="text-4xl">🎯</div>
+            <h2 className="mt-2 text-xl font-bold">Test prep</h2>
+            <p className="text-slate-600">Test coming up? Pick the chapters, practice with tips, and see how ready you are.</p>
+          </Link>
+        )}
         {student.aiEnabled && (
           <Link href="/student/homework" className="card block transition hover:-translate-y-0.5">
             <div className="text-4xl">🧭</div>

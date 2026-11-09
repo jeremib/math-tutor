@@ -62,6 +62,8 @@ export async function POST(req: Request) {
       .where(and(eq(schema.practiceProblems.textbookId, existing.id), isNull(schema.practiceProblems.usedAt)));
     await clearLessonProgress(existing.id, student.id);
     await clearLessonGuides(existing.id);
+    // Test preps point at lessons by position too.
+    await db.delete(schema.chapterTests).where(eq(schema.chapterTests.textbookId, existing.id));
   }
   const [book] = await db.insert(schema.textbooks).values({ studentId: student.id, ...values })
     .onConflictDoUpdate({ target: schema.textbooks.studentId, set: values }).returning();

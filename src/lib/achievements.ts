@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, count, desc, eq, gte, isNotNull, max, sql, sum } from "drizzle-orm";
 import { getDb, schema, type Db } from "@/db";
 import {
-  BADGES_BY_ID, HOMEWORK_XP_PER_DAY, RACE_XP_CAP, RACES_WITH_XP_PER_DAY, XP, checkInXp, levelInfo, longestStreak, newBadges, streakEndingOn, weekDates, weekStart,
+  BADGES_BY_ID, HOMEWORK_XP_PER_DAY, RACE_XP_CAP, RACES_WITH_XP_PER_DAY, TEST_PREP_XP_PER_DAY, XP, checkInXp, levelInfo, longestStreak, newBadges, streakEndingOn, weekDates, weekStart,
   type BadgeStats,
 } from "./gamification";
 import { MIN_ATTEMPTS_FOR_MASTERY, localDate } from "./progress";
@@ -150,6 +150,20 @@ export async function awardForHomework(studentId: string, timezone: string, sess
       if (gained) messages.push(`Homework solved +${gained} XP`);
     }
     return summarize(tx, studentId, before, gained, messages);
+  });
+}
+
+/** Awards XP for finishing a chapter test prep, up to a daily cap. */
+export async function awardForTestPrep(studentId: string, timezone: string, testId: string): Promise<AwardSummary> {
+  const db = await getDb();
+  const date = localDate(timezone);
+  return db.transaction(async (tx) => {
+    const before = await totalXp(tx, studentId);
+    const [today] = await tx.select({ n: count() }).from(schema.xpEvents).where(and(
+      eq(schema.xpEvents.studentId, studentId), eq(schema.xpEvents.kind, "test_prep"), eq(schema.xpEvents.date, date),
+    ));
+    const gained = today.n < TEST_PREP_XP_PER_DAY ? await awardXp(tx, studentId, "test_prep", `test_prep:${testId}`, XP.testPrep, date) : 0;
+    return summarize(tx, studentId, before, gained, gained ? [`Test prep finished +${gained} XP`] : []);
   });
 }
 
