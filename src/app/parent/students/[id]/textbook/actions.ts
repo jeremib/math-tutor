@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { familyStudent, requireParent } from "@/lib/auth";
@@ -19,6 +20,7 @@ async function familyTextbook(form: FormData) {
 const refresh = (studentId: string) => {
   revalidatePath(`/parent/students/${studentId}/textbook`);
   revalidatePath(`/parent/students/${studentId}`);
+  revalidatePath(`/parent/students/${studentId}/setup`);
 };
 
 /**
@@ -43,6 +45,8 @@ export async function startChapter(form: FormData) {
   if (student.aiEnabled) startPlacingSkills({ ...book, currentChapter: index, currentLesson });
   await refillChapterPractice(student);
   refresh(student.id);
+  // The setup wizard moves on to its next step.
+  if (form.get("then") === "setup") redirect(`/parent/students/${student.id}/setup?step=plan`);
 }
 
 /** Lets a parent fix which skills practice a chapter. */

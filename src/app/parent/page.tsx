@@ -5,12 +5,9 @@ import { requireParent } from "@/lib/auth";
 import { GRADE_LABELS } from "@/lib/curriculum";
 import { studentStats } from "@/lib/learning";
 import { gameProfile } from "@/lib/achievements";
-import { STARTER_AVATARS } from "@/lib/gamification";
 import { ActionForm } from "@/components/ActionForm";
 import { Stat } from "@/components/ui";
-import { addCoParent, addStudent } from "./actions";
-
-const AVATARS = STARTER_AVATARS;
+import { addCoParent } from "./actions";
 
 export default async function ParentDashboard() {
   const { family } = await requireParent();
@@ -66,45 +63,20 @@ export default async function ParentDashboard() {
           })}
         </div>
       ) : (
-        <div className="card text-center text-slate-600">Add your first student below to get started.</div>
+        <div className="card space-y-3 text-center">
+          <p className="text-lg font-bold">Let&apos;s set up your first student</p>
+          <p className="text-slate-600">Add their name and login, their school math book and the lesson they&apos;re on. Drills start the same day.</p>
+          <Link href="/parent/students/new" className="btn inline-block">＋ Add a student</Link>
+        </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="card">
-          <h2 className="mb-4 text-xl font-bold">Add a student</h2>
-          <ActionForm action={addStudent} submit="Add student" resetOnSuccess successText="Student added!">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label" htmlFor="name">First name</label>
-                <input id="name" name="name" className="input" required />
-              </div>
-              <div>
-                <label className="label" htmlFor="grade">Grade</label>
-                <select id="grade" name="grade" className="input" defaultValue="3">
-                  {Object.entries(GRADE_LABELS).map(([g, label]) => <option key={g} value={g}>{label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label" htmlFor="username">Username</label>
-                <input id="username" name="username" className="input" placeholder="maya" required />
-              </div>
-              <div>
-                <label className="label" htmlFor="pin">PIN (4–8 digits)</label>
-                <input id="pin" name="pin" className="input" inputMode="numeric" pattern="\d{4,8}" required />
-              </div>
-            </div>
-            <fieldset>
-              <legend className="label">Avatar</legend>
-              <div className="flex flex-wrap gap-2">
-                {AVATARS.map((a, i) => (
-                  <label key={a} className="cursor-pointer">
-                    <input type="radio" name="avatar" value={a} defaultChecked={i === 0} className="peer sr-only" />
-                    <span className="grid h-11 w-11 place-items-center rounded-xl text-2xl ring-1 ring-slate-200 peer-checked:bg-brand-50 peer-checked:ring-2 peer-checked:ring-brand-500">{a}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          </ActionForm>
+        <section className="card space-y-3">
+          <h2 className="text-xl font-bold">Add a student</h2>
+          <p className="text-slate-600">
+            A short setup: name and login, the math book they use at school, the lesson their class is on, and a daily plan. About 3 minutes.
+          </p>
+          <Link href="/parent/students/new" className="btn">＋ Add a student</Link>
         </section>
 
         <section className="card">

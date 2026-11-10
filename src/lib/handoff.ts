@@ -11,11 +11,19 @@ type Handoff = typeof schema.photoHandoffs.$inferSelect;
 
 /** The site's address as the phone should reach it: APP_URL if set, else the address the computer used. */
 export function publicOrigin(req: Request): string {
+  return headerOrigin(req.headers, new URL(req.url));
+}
+
+/** The same, from request headers alone (server components), falling back to `url` when headers lack the host. */
+export function headerOrigin(headers: Headers, url?: URL): string {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? new URL(req.url).host;
-  const proto = req.headers.get("x-forwarded-proto")?.split(",")[0] ?? new URL(req.url).protocol.replace(":", "");
+  const host = headers.get("x-forwarded-host") ?? headers.get("host") ?? url?.host ?? "localhost";
+  const proto = headers.get("x-forwarded-proto")?.split(",")[0] ?? url?.protocol.replace(":", "") ?? (host.startsWith("localhost") ? "http" : "https");
   return `${proto}://${host}`;
 }
+
+/** An SVG QR code for a link. */
+export const qrSvg = (url: string) => QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" });
 
 /** Starts a phone link for a student, clearing their expired ones. Returns its token, address and QR code (SVG). */
 export async function createHandoff(studentId: string, origin: string) {

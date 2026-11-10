@@ -8,7 +8,8 @@ import { getDb, schema, type Db } from "@/db";
 import { createSession, destroySession } from "@/lib/auth";
 import { clearAttempts, tooManyAttempts } from "@/lib/rate-limit";
 
-export type FormState = { error?: string } | undefined;
+/** `values` puts typed fields back after an error, since React clears a form once its action runs. */
+export type FormState = { error?: string; values?: Record<string, string> } | undefined;
 
 const CODE_WORDS = ["OWL", "FOX", "BEE", "CAT", "ELK", "YAK", "EMU", "APE", "BAT", "COD", "JAY", "RAM"];
 

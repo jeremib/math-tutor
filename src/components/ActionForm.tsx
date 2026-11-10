@@ -17,6 +17,14 @@ export function ActionForm({ action, children, submit, resetOnSuccess, successTe
   const succeeded = state !== undefined && !state.error;
   useEffect(() => {
     if (succeeded && resetOnSuccess) ref.current?.reset();
+    const form = ref.current;
+    if (!form || !state?.values) return;
+    for (const [name, value] of Object.entries(state.values)) {
+      for (const el of form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(`[name="${CSS.escape(name)}"]`)) {
+        if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) el.checked = el.value === value;
+        else el.value = value;
+      }
+    }
   }, [state, succeeded, resetOnSuccess]);
 
   return (

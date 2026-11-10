@@ -19,14 +19,25 @@ const studentSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(40),
   username: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{2,20}$/, "Username: 2–20 letters, numbers or _"),
   pin,
+  pinAgain: z.string().trim().optional(),
   grade,
   avatar: z.string().max(8).default("🦊"),
-});
+}).refine((d) => d.pinAgain === undefined || d.pinAgain === d.pin, { message: "The two PINs don't match", path: ["pinAgain"] });
 
+/** A username made from a first name, for when the parent leaves it blank. */
+function usernameFrom(name: string) {
+  return name.normalize("NFD").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20);
+}
+
+/** Adds a student, then starts their setup: textbook, starting lesson and daily plan. */
 export async function addStudent(_: FormState, form: FormData): Promise<FormState> {
   const { family } = await requireParent();
-  const parsed = studentSchema.safeParse(Object.fromEntries(form));
-  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const fields = Object.fromEntries(form);
+  if (!String(fields.username ?? "").trim()) fields.username = usernameFrom(String(fields.name ?? ""));
+  // Everything but the PINs goes back into the form if something's wrong.
+  const values = Object.fromEntries(["name", "grade", "avatar", "username"].map((k) => [k, String(form.get(k) ?? "")]));
+  const parsed = studentSchema.safeParse(fields);
+  if (!parsed.success) return { error: parsed.error.issues[0].message, values };
   const data = parsed.data;
 
   const db = await getDb();
@@ -37,11 +48,45 @@ export async function addStudent(_: FormState, form: FormData): Promise<FormStat
       voiceEnabled: data.grade <= 2,
     }).onConflictDoNothing().returning();
     if (student) await seedStudentSkills(student.id, data.grade, tx);
-    return !!student;
+    return student?.id ?? null;
   });
-  if (!added) return { error: "That username is already used in your family." };
+  if (!added) return { error: `The username "${data.username}" is already used in your family. Pick another one.`, values };
   revalidatePath("/parent");
-  return {};
+  redirect(`/parent/students/${added}/setup`);
+}
+
+const planSchema = z.object({
+  studentId: z.string(),
+  dailyProblems: z.coerce.number().int().min(3).max(30),
+  weeklyGoal: z.coerce.number().int().min(1).max(7),
+  aiEnabled: z.literal("on").optional(),
+  voiceEnabled: z.literal("on").optional(),
+  rewardTitle: z.string().trim().max(80).optional(),
+  rewardXp: z.coerce.number().int().min(10).max(100000).optional(),
+});
+
+/** The setup's daily-plan step: drill size, weekly goal, tutor and voice, and an optional first reward. */
+export async function saveSetupPlan(_: FormState, form: FormData): Promise<FormState> {
+  const { family } = await requireParent();
+  const fields = Object.fromEntries([...form].filter(([, v]) => v !== ""));
+  const parsed = planSchema.safeParse(fields);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const data = parsed.data;
+  const student = await familyStudent(family.id, data.studentId);
+  if (!student) return { error: "Student not found." };
+  const db = await getDb();
+  await db.update(schema.students).set({
+    dailyProblems: data.dailyProblems,
+    weeklyGoal: data.weeklyGoal,
+    aiEnabled: data.aiEnabled === "on",
+    voiceEnabled: data.voiceEnabled === "on",
+  }).where(eq(schema.students.id, student.id));
+  if (data.rewardTitle) {
+    const xpTarget = (await totalXp(db, student.id)) + (data.rewardXp ?? 200);
+    await db.insert(schema.rewards).values({ studentId: student.id, title: data.rewardTitle, xpTarget });
+  }
+  revalidatePath(`/parent/students/${student.id}`);
+  redirect(`/parent/students/${student.id}/setup?step=done`);
 }
 
 const settingsSchema = z.object({
